@@ -1,0 +1,12 @@
+{
+    "api_key": "by4NPeciZqF81a2jgD1IiIg9TPFeEA",
+    "base_url": "https://api.india.delta.exchange",
+    "timeframe": "4h",
+    "swing_length": 3,
+    "macro_lookback_days": 10,
+    "close_break": true,
+    "scan_interval_seconds": 900,
+    "contract_types": ["perpetual_futures"],
+    "min_volume_24h": 0,
+    "max_instruments": 250
+}

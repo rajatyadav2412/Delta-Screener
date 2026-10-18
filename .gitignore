@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+.DS_Store
+.vercel
+signals_history_old.db

@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delta Exchange — 4H CHoCH Screener & Historical Alerts</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0d1117',
+                        cardbg: '#161b22',
+                        bordercolor: '#30363d',
+                        bullish: '#10b981',
+                        bearish: '#ef4444',
+                        accent: '#3b82f6'
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- TradingView Advanced Charts (Official Library) -->
+    <script src="https://s3.tradingview.com/tv.js"></script>
+    <!-- TradingView Lightweight Charts (Custom Signal Engine) -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b0e14;
+            color: #e6edf3;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #161b22;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #484f58;
+        }
+        .pulse-dot {
+            animation: pulse-animation 2s infinite;
+        }
+        @keyframes pulse-animation {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Top Navigation Bar (Mobile & Desktop Optimized) -->
+    <header class="bg-cardbg border-b border-bordercolor sticky top-0 z-40 backdrop-blur bg-opacity-95 shadow-sm">
+        <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2.5 sm:py-0 sm:h-16 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-0">
+            <!-- Row 1 (Mobile) / Left (Desktop): Brand + Mobile Scan Button -->
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2.5 sm:space-x-3">
+                    <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center font-bold text-white shadow-lg shadow-blue-500/30 flex-shrink-0">
+                        Δ
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <span class="font-bold text-base sm:text-lg text-white tracking-tight">Delta Screener</span>
+                            <span class="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/50 font-semibold mono">4H ONLY</span>
+                        </div>
+                        <p class="text-[11px] text-gray-400 hidden sm:block">TradingView (3,3) Pivots + 10-Day High/Low Filter</p>
+                    </div>
+                </div>
+
+                <!-- Mobile Quick Scan Button -->
+                <button id="btn-scan-mob" onclick="triggerLiveScan()" class="sm:hidden inline-flex items-center space-x-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition duration-150 shadow-sm shadow-blue-500/20 active:scale-95 flex-shrink-0">
+                    <svg id="scan-icon-mob" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    <span id="scan-btn-text-mob">Scan Now</span>
+                </button>
+            </div>
+
+            <!-- Row 2 (Mobile) / Right (Desktop): Real-time IST Clock & Countdown & Desktop Scan Button -->
+            <div class="flex items-center justify-between sm:justify-end space-x-2 sm:space-x-4 w-full sm:w-auto">
+                <!-- Real-time Live IST Clock with running seconds -->
+                <div class="flex-1 sm:flex-none flex items-center justify-center space-x-1.5 bg-darkbg/80 border border-bordercolor px-2.5 sm:px-3 py-1.5 rounded-lg shadow-sm">
+                    <span class="text-xs">🕒</span>
+                    <span class="text-[10px] sm:text-[11px] text-gray-400 font-medium">IST:</span>
+                    <span id="live-ist-clock" class="text-[11px] sm:text-xs font-semibold mono text-blue-400">Syncing...</span>
+                </div>
+
+                <!-- Next 4H Candle Close Countdown -->
+                <div class="flex-[1.4] sm:flex-none flex items-center justify-center space-x-1.5 sm:space-x-2 bg-darkbg/80 border border-bordercolor px-2.5 sm:px-3.5 py-1.5 rounded-lg shadow-sm">
+                    <span class="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-500 pulse-dot flex-shrink-0"></span>
+                    <span class="text-[10px] sm:text-[11px] text-gray-400 whitespace-nowrap hidden md:inline">Next 4H Close:</span>
+                    <span id="countdown-text" class="text-[11px] sm:text-xs font-semibold mono text-emerald-400 whitespace-nowrap">Calculating...</span>
+                </div>
+
+                <!-- Desktop Scan Button -->
+                <button id="btn-scan-desk" onclick="triggerLiveScan()" class="hidden sm:inline-flex items-center space-x-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-3.5 py-2 rounded-lg transition duration-150 shadow-sm shadow-blue-500/20 active:scale-95 flex-shrink-0">
+                    <svg id="scan-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    <span id="scan-btn-text">Scan Now</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-grow max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 w-full space-y-4 sm:space-y-6">
+
+        <!-- Stat Cards Row -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
+            <div class="bg-cardbg border border-bordercolor rounded-xl p-3 sm:p-4 shadow-sm hover:border-gray-600 transition">
+                <div class="text-[11px] sm:text-xs font-medium text-gray-400">Total Signals</div>
+                <div class="text-xl sm:text-2xl font-bold text-white mono mt-1" id="stat-total">0</div>
+                <div class="text-[10px] sm:text-[11px] text-gray-500 mt-0.5">Recorded setups</div>
+            </div>
+
+            <div class="bg-cardbg border border-bordercolor rounded-xl p-3 sm:p-4 shadow-sm hover:border-emerald-600/50 transition">
+                <div class="text-[11px] sm:text-xs font-medium text-emerald-400 flex items-center space-x-1.5">
+                    <span>🟢</span>
+                    <span>Bullish CHoCH</span>
+                </div>
+                <div class="text-xl sm:text-2xl font-bold text-emerald-400 mono mt-1" id="stat-bullish">0</div>
+                <div class="text-[10px] sm:text-[11px] text-gray-500 mt-0.5 truncate">LL swept 10D Low -> Broke LH</div>
+            </div>
+
+            <div class="bg-cardbg border border-bordercolor rounded-xl p-3 sm:p-4 shadow-sm hover:border-rose-600/50 transition">
+                <div class="text-[11px] sm:text-xs font-medium text-rose-400 flex items-center space-x-1.5">
+                    <span>🔴</span>
+                    <span>Bearish CHoCH</span>
+                </div>
+                <div class="text-xl sm:text-2xl font-bold text-rose-400 mono mt-1" id="stat-bearish">0</div>
+                <div class="text-[10px] sm:text-[11px] text-gray-500 mt-0.5 truncate">HH swept 10D High -> Broke HL</div>
+            </div>
+
+            <div class="bg-cardbg border border-bordercolor rounded-xl p-3 sm:p-4 shadow-sm hover:border-gray-600 transition">
+                <div class="text-[11px] sm:text-xs font-medium text-gray-400">Live Contracts</div>
+                <div class="text-xl sm:text-2xl font-bold text-indigo-400 mono mt-1" id="stat-symbols">237</div>
+                <div class="text-[10px] sm:text-[11px] text-gray-500 mt-0.5">Delta Perpetuals</div>
+            </div>
+        </div>
+
+        <!-- Filter & Search Toolbar (Chartink-style) -->
+        <div class="bg-cardbg border border-bordercolor rounded-xl p-3 sm:p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 sm:gap-4">
+            <!-- Filter Pills -->
+            <div class="flex items-center space-x-2 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+                <button onclick="setFilter('ALL')" id="filter-all" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white transition whitespace-nowrap">
+                    All Signals
+                </button>
+                <button onclick="setFilter('BULLISH_CHOCH')" id="filter-bull" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-300 hover:text-white border border-bordercolor hover:border-emerald-500 transition whitespace-nowrap">
+                    🟢 Bullish
+                </button>
+                <button onclick="setFilter('BEARISH_CHOCH')" id="filter-bear" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-300 hover:text-white border border-bordercolor hover:border-rose-500 transition whitespace-nowrap">
+                    🔴 Bearish
+                </button>
+            </div>
+
+            <!-- Search Box & Refresh Status -->
+            <div class="flex items-center space-x-3 w-full md:w-auto">
+                <div class="relative w-full md:w-64">
+                    <input type="text" id="search-input" oninput="handleSearch()" placeholder="Search coin (e.g. BTC, SOL)..." class="w-full bg-darkbg border border-bordercolor rounded-lg px-3.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition">
+                    <span class="absolute right-3 top-2 text-gray-500 text-xs">🔍</span>
+                </div>
+
+                <div class="text-[11px] sm:text-xs text-gray-400 whitespace-nowrap">
+                    Last: <span id="last-scan-label" class="text-gray-300 mono text-[10px] sm:text-[11px]">Syncing...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mobile Signals Card View (Visible on Mobile screens < 768px) -->
+        <div id="signals-cards" class="md:hidden space-y-2.5">
+            <div class="bg-cardbg border border-bordercolor rounded-xl p-8 text-center text-gray-500 mono text-xs">
+                Loading signals...
+            </div>
+        </div>
+
+        <!-- Desktop Signals Table (Visible on md: and above) -->
+        <div class="hidden md:block bg-cardbg border border-bordercolor rounded-xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-darkbg/90 border-b border-bordercolor text-[11px] font-semibold text-gray-400 uppercase tracking-wider mono">
+                            <th class="py-3 px-4">4H Candle Time (IST)</th>
+                            <th class="py-3 px-4">Instrument</th>
+                            <th class="py-3 px-4">Signal Type</th>
+                            <th class="py-3 px-4">10-Day Macro Anchor</th>
+                            <th class="py-3 px-4">Broken Wick Level</th>
+                            <th class="py-3 px-4">Price At Signal</th>
+                            <th class="py-3 px-4">Current Price</th>
+                            <th class="py-3 px-4">Prior BOS</th>
+                            <th class="py-3 px-4 text-center">Chart</th>
+                        </tr>
+                    </thead>
+                    <tbody id="signals-tbody" class="divide-y divide-bordercolor text-xs">
+                        <tr>
+                            <td colspan="9" class="py-8 text-center text-gray-500 mono">Loading historical signals...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Interactive Candlestick Chart Modal (Mobile & Desktop Responsive) -->
+    <div id="chart-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-2 sm:p-4 md:p-6">
+        <div class="bg-cardbg border border-bordercolor rounded-2xl w-full max-w-6xl overflow-hidden shadow-2xl flex flex-col h-[94vh] sm:h-[90vh] max-h-[880px]">
+            <!-- Modal Header -->
+            <div class="p-3 sm:p-3.5 border-b border-bordercolor flex flex-col gap-2.5 bg-[#111620]">
+                <!-- Top Row: Symbol, Badge, External Link & Close button -->
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-2 sm:space-x-3">
+                        <span id="modal-symbol" class="text-lg sm:text-xl font-bold text-white mono">BTCUSD</span>
+                        <span id="modal-badge" class="px-2.5 py-0.5 rounded text-[11px] sm:text-xs font-semibold">SIGNAL</span>
+                        <span class="text-xs text-gray-400 mono hidden md:inline">4H Timeframe (IST)</span>
+                    </div>
+
+                    <div class="flex items-center space-x-2">
+                        <a id="modal-tv-external" href="#" target="_blank" title="Open full chart on TradingView.com" class="px-2.5 py-1 rounded bg-blue-900/30 hover:bg-blue-800/50 text-blue-300 border border-blue-700/50 text-[11px] sm:text-xs mono font-medium transition flex items-center space-x-1">
+                            <span>TradingView ↗</span>
+                        </a>
+                        <button onclick="closeChartModal()" class="text-gray-400 hover:text-white w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg hover:bg-darkbg transition text-lg leading-none" title="Close (ESC)">
+                            ✕
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Bottom Row: View Switcher Tabs (Full Width on Mobile) -->
+                <div class="flex items-center bg-darkbg p-1 rounded-xl border border-bordercolor space-x-1 w-full sm:w-auto self-start sm:self-auto">
+                    <button id="tab-signals" onclick="switchChartTab('signals')" class="flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white transition flex items-center space-x-1.5 shadow-sm">
+                        <span>⚡ CHoCH Setup & Markers</span>
+                    </button>
+                    <button id="tab-tv" onclick="switchChartTab('tv')" class="flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white transition flex items-center space-x-1.5">
+                        <span>📈 TradingView Superchart</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Modal Info Banner -->
+            <div class="bg-darkbg/80 px-3 sm:px-4 py-2 border-b border-bordercolor text-[11px] sm:text-xs mono">
+                <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-4">
+                    <div><span class="text-gray-400">Broken Wick:</span> <span id="modal-broken-level" class="text-emerald-400 font-semibold">-</span></div>
+                    <div><span class="text-gray-400">10D Anchor:</span> <span id="modal-anchor-level" class="text-yellow-400 font-semibold">-</span></div>
+                    <div><span class="text-gray-400">Trigger:</span> <span id="modal-signal-price" class="text-white font-semibold">-</span></div>
+                    <div><span class="text-gray-400">Candle:</span> <span id="modal-signal-time" class="text-blue-400 font-semibold">-</span></div>
+                </div>
+                <!-- TradingView Feed Selector -->
+                <div id="tv-source-picker" class="hidden mt-2 sm:mt-0 flex items-center space-x-1 bg-[#161b22] px-2 py-0.5 rounded border border-bordercolor text-[11px]">
+                    <span class="text-gray-400">Feed:</span>
+                    <button onclick="changeTvFeed('DELTAIN')" id="feed-deltain" class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-600 text-white">Delta IN</button>
+                    <button onclick="changeTvFeed('BINANCE')" id="feed-binance" class="px-1.5 py-0.5 rounded text-[10px] font-medium text-gray-400 hover:text-white">Binance</button>
+                </div>
+            </div>
+
+            <!-- Chart Canvas Container -->
+            <div class="flex-grow relative bg-[#0e1117] w-full h-full min-h-[300px] overflow-hidden">
+                <!-- Custom CHoCH Engine Chart Container (Default Visible) -->
+                <div id="chart-container" class="w-full h-full"></div>
+
+                <!-- TradingView Full Advanced Chart Container (Initially Hidden) -->
+                <div id="tv-chart-container" class="w-full h-full hidden"></div>
+
+                <div id="chart-loader" class="absolute inset-0 bg-[#0e1117]/80 flex items-center justify-center text-xs text-gray-400 mono">
+                    Loading chart data...
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="p-2.5 sm:p-3 border-t border-bordercolor bg-darkbg flex flex-col sm:flex-row justify-between items-center text-[10px] sm:text-xs text-gray-400 gap-1.5 sm:gap-2">
+                <span id="modal-footer-legend" class="text-center sm:text-left text-[10px] sm:text-xs">Green dashed = Broken Pivot Wick | Yellow dotted = 10D Anchor | Arrow marker = Signal Trigger Candle (IST)</span>
+                <div class="flex items-center space-x-4">
+                    <span id="modal-tv-symbol-label" class="mono text-gray-400 text-[10px] sm:text-[11px]"></span>
+                    <a id="modal-delta-link" href="#" target="_blank" class="text-blue-400 hover:underline font-medium">Trade on Delta Exchange →</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application JavaScript -->
+    <script>
+        let currentFilter = 'ALL';
+        let searchQuery = '';
+        let allSignals = [];
+        let chartInstance = null;
+        let candleSeries = null;
+        let brokenLine = null;
+        let anchorLine = null;
+
+        // Fetch signals and update dashboard
+        async function fetchSignals() {
+            try {
+                const res = await fetch(`/api/signals?type=${currentFilter}&symbol=${encodeURIComponent(searchQuery)}`);
+                const data = await res.json();
+                allSignals = data.signals || [];
+                renderTable(allSignals);
+            } catch (err) {
+                console.error("Failed to fetch signals:", err);
+            }
+        }
+
+        // Fetch high level stats and countdown
+        async function fetchStats() {
+            try {
+                const res = await fetch('/api/stats');
+                const data = await res.json();
+                
+                document.getElementById('stat-total').innerText = data.total_signals || 0;
+                document.getElementById('stat-bullish').innerText = data.bullish_count || 0;
+                document.getElementById('stat-bearish').innerText = data.bearish_count || 0;
+                document.getElementById('stat-symbols').innerText = data.unique_symbols || 237;
+
+                if (data.last_scan_time) {
+                    document.getElementById('last-scan-label').innerText = data.last_scan_time.slice(11, 19) + ' UTC';
+                }
+
+                // Update scanning button state (both mobile and desktop)
+                const scanBtnDesk = document.getElementById('btn-scan-desk');
+                const scanBtnMob = document.getElementById('btn-scan-mob');
+                const scanIconDesk = document.getElementById('scan-icon');
+                const scanIconMob = document.getElementById('scan-icon-mob');
+                const scanTextDesk = document.getElementById('scan-btn-text');
+                const scanTextMob = document.getElementById('scan-btn-text-mob');
+
+                if (data.is_scanning) {
+                    if (scanIconDesk) scanIconDesk.classList.add('animate-spin');
+                    if (scanIconMob) scanIconMob.classList.add('animate-spin');
+                    if (scanTextDesk) scanTextDesk.innerText = 'Scanning...';
+                    if (scanTextMob) scanTextMob.innerText = 'Scanning...';
+                    if (scanBtnDesk) scanBtnDesk.disabled = true;
+                    if (scanBtnMob) scanBtnMob.disabled = true;
+                } else {
+                    if (scanIconDesk) scanIconDesk.classList.remove('animate-spin');
+                    if (scanIconMob) scanIconMob.classList.remove('animate-spin');
+                    if (scanTextDesk) scanTextDesk.innerText = 'Scan Now';
+                    if (scanTextMob) scanTextMob.innerText = 'Scan Now';
+                    if (scanBtnDesk) scanBtnDesk.disabled = false;
+                    if (scanBtnMob) scanBtnMob.disabled = false;
+                }
+            } catch (err) {
+                console.error("Failed to fetch stats:", err);
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // REAL-TIME LIVE IST CLOCK & 4H CANDLE CLOSE COUNTDOWN (1-SEC TICK)
+        // ─────────────────────────────────────────────────────────────
+        function updateLiveClocks() {
+            const now = new Date();
+
+            // 1. Live IST Clock with running seconds
+            const istClockEl = document.getElementById('live-ist-clock');
+            if (istClockEl) {
+                istClockEl.innerText = now.toLocaleTimeString('en-IN', {
+                    timeZone: 'Asia/Kolkata',
+                    hour12: true,
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+            }
+
+            // 2. Next 4H Candle Close (05:30 AM, 09:30 AM, 01:30 PM, 05:30 PM, 09:30 PM, 01:30 AM IST)
+            const curHour = now.getUTCHours();
+            const nextHour = (Math.floor(curHour / 4) + 1) * 4;
+            const targetClose = new Date(now.getTime());
+            targetClose.setUTCMinutes(0, 0, 0);
+            targetClose.setUTCHours(nextHour);
+
+            const nextCloseFormatted = targetClose.toLocaleTimeString('en-IN', {
+                timeZone: 'Asia/Kolkata',
+                hour12: true,
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            const diffMs = targetClose.getTime() - now.getTime();
+            const totalSec = Math.max(0, Math.floor(diffMs / 1000));
+            const h = Math.floor(totalSec / 3600);
+            const m = Math.floor((totalSec % 3600) / 60);
+            const s = totalSec % 60;
+
+            const countdownStr = `${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
+            const countdownEl = document.getElementById('countdown-text');
+            if (countdownEl) {
+                countdownEl.innerText = `${nextCloseFormatted} (in ${countdownStr})`;
+            }
+
+            // Candle just closed -> auto refresh signals
+            if (totalSec === 0) {
+                setTimeout(() => {
+                    fetchStats();
+                    fetchSignals();
+                }, 3000);
+            }
+        }
+
+        function formatIST(dateStr) {
+            if (!dateStr) return 'N/A';
+            try {
+                let s = dateStr.replace(' UTC', 'Z');
+                if (!s.includes('Z') && !s.includes('+') && !s.includes('IST')) {
+                    s += 'Z';
+                }
+                const d = new Date(s);
+                if (isNaN(d.getTime())) return dateStr.slice(0, 16);
+                return d.toLocaleString('en-IN', {
+                    timeZone: 'Asia/Kolkata',
+                    day: '2-digit',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true
+                });
+            } catch(e) {
+                return dateStr.slice(0, 16);
+            }
+        }
+
+        function renderTable(signals) {
+            const tbody = document.getElementById('signals-tbody');
+            const cardsContainer = document.getElementById('signals-cards');
+
+            if (!signals || signals.length === 0) {
+                if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center text-gray-500 mono">No setups matching your filter.</td></tr>`;
+                if (cardsContainer) cardsContainer.innerHTML = `<div class="bg-cardbg border border-bordercolor rounded-xl p-8 text-center text-gray-500 mono text-xs">No setups matching your filter.</div>`;
+                return;
+            }
+
+            let tableHtml = '';
+            let cardsHtml = '';
+
+            for (const sig of signals) {
+                const isBull = sig.direction === 1;
+                const typePill = isBull 
+                    ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">🟢 Bullish CHoCH</span>`
+                    : `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-950/80 text-rose-400 border border-rose-800/60">🔴 Bearish CHoCH</span>`;
+
+                const anchorText = sig.macro_anchor_label 
+                    ? `<span class="mono text-yellow-400 font-medium">${sig.macro_anchor_label} (${sig.macro_anchor_price.toFixed(4)})</span>`
+                    : `<span class="text-gray-500">N/A</span>`;
+
+                const wickInfo = sig.broken_pivot_label 
+                    ? `<span class="mono text-gray-300 font-medium">${sig.broken_pivot_label}: ${sig.broken_wick_level.toFixed(4)}</span>`
+                    : `<span class="mono text-gray-400">${sig.broken_wick_level.toFixed(4)}</span>`;
+
+                const pDiff = ((sig.current_price - sig.price_at_signal) / sig.price_at_signal) * 100;
+                const diffColor = pDiff >= 0 ? 'text-emerald-400' : 'text-rose-400';
+                const diffSign = pDiff >= 0 ? '+' : '';
+
+                const openModalCall = `openChartModal('${sig.symbol}', ${sig.broken_wick_level}, ${sig.macro_anchor_price}, ${sig.price_at_signal}, '${sig.signal_type}', '${sig.candle_time}')`;
+
+                // Desktop Table Row
+                tableHtml += `
+                    <tr class="hover:bg-darkbg/50 transition">
+                        <td class="py-3 px-4 mono text-gray-300 whitespace-nowrap">${formatIST(sig.candle_time)}</td>
+                        <td class="py-3 px-4 font-bold text-white mono">
+                            <span class="hover:text-blue-400 cursor-pointer" onclick="${openModalCall}">${sig.symbol}</span>
+                        </td>
+                        <td class="py-3 px-4 whitespace-nowrap">${typePill}</td>
+                        <td class="py-3 px-4 whitespace-nowrap text-xs">${anchorText}</td>
+                        <td class="py-3 px-4 whitespace-nowrap text-xs">${wickInfo}</td>
+                        <td class="py-3 px-4 mono text-gray-300 font-medium whitespace-nowrap">$${sig.price_at_signal.toFixed(4)}</td>
+                        <td class="py-3 px-4 mono whitespace-nowrap">
+                            <div class="text-white font-medium">$${sig.current_price.toFixed(4)}</div>
+                            <div class="text-[10px] ${diffColor}">${diffSign}${pDiff.toFixed(2)}%</div>
+                        </td>
+                        <td class="py-3 px-4 mono text-gray-400 text-xs whitespace-nowrap">${sig.bos_type}</td>
+                        <td class="py-3 px-4 text-center">
+                            <button onclick="${openModalCall}" class="px-2.5 py-1 rounded bg-blue-900/40 hover:bg-blue-800/60 text-blue-300 border border-blue-700/50 text-xs mono font-medium transition">
+                                📊 Chart
+                            </button>
+                        </td>
+                    </tr>
+                `;
+
+                // Mobile Card View (Touch-first, fully responsive)
+                cardsHtml += `
+                    <div class="bg-cardbg border border-bordercolor rounded-xl p-3.5 hover:border-gray-600 transition flex flex-col space-y-2.5 active:bg-darkbg/80 cursor-pointer shadow-sm" onclick="${openModalCall}">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-base font-bold text-white mono">${sig.symbol}</span>
+                                ${typePill}
+                            </div>
+                            <div class="text-right mono">
+                                <div class="text-sm font-bold text-white">$${sig.current_price.toFixed(4)}</div>
+                                <div class="text-[10px] font-semibold ${diffColor}">${diffSign}${pDiff.toFixed(2)}%</div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 text-xs bg-darkbg/70 p-2.5 rounded-lg border border-bordercolor/60 mono">
+                            <div>
+                                <div class="text-[10px] text-gray-500 uppercase tracking-wider">Trigger Time (IST)</div>
+                                <div class="text-gray-300 font-medium text-[11px] mt-0.5">${formatIST(sig.candle_time)}</div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] text-gray-500 uppercase tracking-wider">Price At Signal</div>
+                                <div class="text-gray-300 font-medium text-[11px] mt-0.5">$${sig.price_at_signal.toFixed(4)}</div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] text-gray-500 uppercase tracking-wider">Broken Wick</div>
+                                <div class="text-emerald-400 font-semibold text-[11px] mt-0.5">${wickInfo}</div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] text-gray-500 uppercase tracking-wider">10D Anchor</div>
+                                <div class="text-yellow-400 font-semibold text-[11px] mt-0.5">${anchorText}</div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between pt-0.5">
+                            <span class="text-[11px] text-gray-500 mono">${sig.bos_type}</span>
+                            <span class="inline-flex items-center space-x-1 text-xs font-semibold text-blue-400 bg-blue-950/60 px-3 py-1 rounded-lg border border-blue-800/50">
+                                <span>📊 Open Chart</span>
+                                <span>→</span>
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (tbody) tbody.innerHTML = tableHtml;
+            if (cardsContainer) cardsContainer.innerHTML = cardsHtml;
+        }
+
+        function setFilter(type) {
+            currentFilter = type;
+            document.getElementById('filter-all').className = type === 'ALL' 
+                ? 'px-3.5 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white transition'
+                : 'px-3.5 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-300 hover:text-white border border-bordercolor transition';
+            
+            document.getElementById('filter-bull').className = type === 'BULLISH_CHOCH'
+                ? 'px-3.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 text-white transition'
+                : 'px-3.5 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-300 hover:text-white border border-bordercolor transition';
+
+            document.getElementById('filter-bear').className = type === 'BEARISH_CHOCH'
+                ? 'px-3.5 py-1.5 rounded-lg text-xs font-medium bg-rose-600 text-white transition'
+                : 'px-3.5 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-300 hover:text-white border border-bordercolor transition';
+
+            fetchSignals();
+        }
+
+        function handleSearch() {
+            searchQuery = document.getElementById('search-input').value;
+            fetchSignals();
+        }
+
+        async function triggerLiveScan() {
+            try {
+                await fetch('/api/scan', { method: 'POST' });
+                fetchStats();
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // TRADINGVIEW ADVANCED CHARTS & DUAL-TAB CONTROLLER
+        // ─────────────────────────────────────────────────────────────
+        let currentModalSymbol = '';
+        let loadedTvSymbol = '';
+        let currentTvFeed = 'DELTAIN'; // 'DELTAIN' or 'BINANCE'
+        let currentActiveTab = 'signals';
+        let modalSignalData = null;
+
+        function getTvSymbol(symbol, feed) {
+            if (feed === 'BINANCE') {
+                let base = symbol.replace(/USD[T]?$/i, '');
+                return `BINANCE:${base}USDT`;
+            } else {
+                return `DELTAIN:${symbol}.P`;
+            }
+        }
+
+        function renderTradingViewChart(symbol, feed) {
+            const container = document.getElementById('tv-chart-container');
+            container.innerHTML = ''; // reset previous iframe
+
+            const tvSymbol = getTvSymbol(symbol, feed);
+            document.getElementById('modal-tv-symbol-label').innerText = `TradingView: ${tvSymbol}`;
+            document.getElementById('modal-tv-external').href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}`;
+
+            // Update feed buttons styling
+            const btnDelta = document.getElementById('feed-deltain');
+            const btnBinance = document.getElementById('feed-binance');
+            if (feed === 'DELTAIN') {
+                btnDelta.className = 'px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-600 text-white';
+                btnBinance.className = 'px-1.5 py-0.5 rounded text-[10px] font-medium text-gray-400 hover:text-white';
+            } else {
+                btnBinance.className = 'px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-600 text-white';
+                btnDelta.className = 'px-1.5 py-0.5 rounded text-[10px] font-medium text-gray-400 hover:text-white';
+            }
+
+            try {
+                if (typeof TradingView !== 'undefined' && TradingView.widget) {
+                    new TradingView.widget({
+                        "id": "delta_tradingview_widget",
+                        "autosize": true,
+                        "symbol": tvSymbol,
+                        "interval": "240", // 4 Hours (matching screener)
+                        "timezone": "Asia/Kolkata", // IST (GMT+5:30)
+                        "theme": "dark",
+                        "style": "1", // Candlesticks
+                        "locale": "in",
+                        "toolbar_bg": "#0e1117",
+                        "enable_publishing": false,
+                        "allow_symbol_change": true,
+                        "container_id": "tv-chart-container",
+                        "hide_side_toolbar": false,
+                        "hide_volume": true,
+                        "hidevolume": true,
+                        "withdateranges": true,
+                        "save_image": true,
+                        "disabled_features": [
+                            "create_volume_indicator_by_default",
+                            "volume_force_overlay"
+                        ]
+                    });
+                    loadedTvSymbol = tvSymbol;
+                } else {
+                    container.innerHTML = '<div class="flex items-center justify-center h-full text-gray-400 text-xs mono">TradingView library loading...</div>';
+                }
+            } catch (err) {
+                console.error("Failed to initialize TradingView widget:", err);
+                container.innerHTML = `<div class="flex items-center justify-center h-full text-red-400 text-xs mono">Failed to load TradingView chart: ${err.message}</div>`;
+            }
+        }
+
+        function changeTvFeed(feed) {
+            currentTvFeed = feed;
+            if (currentModalSymbol) {
+                renderTradingViewChart(currentModalSymbol, currentTvFeed);
+            }
+        }
+
+        function switchChartTab(tab) {
+            currentActiveTab = tab;
+            const btnTV = document.getElementById('tab-tv');
+            const btnSignals = document.getElementById('tab-signals');
+            const tvContainer = document.getElementById('tv-chart-container');
+            const signalsContainer = document.getElementById('chart-container');
+            const tvPicker = document.getElementById('tv-source-picker');
+            const legend = document.getElementById('modal-footer-legend');
+
+            if (tab === 'tv') {
+                btnTV.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white transition flex items-center space-x-1.5 shadow-sm';
+                btnSignals.className = 'px-3.5 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white transition flex items-center space-x-1.5';
+                tvContainer.classList.remove('hidden');
+                signalsContainer.classList.add('hidden');
+                tvPicker.classList.remove('hidden');
+                legend.innerText = 'TradingView Advanced Charts — Use the left toolbar for drawing tools and top bar for indicators.';
+
+                if (currentModalSymbol) {
+                    const neededTvSymbol = getTvSymbol(currentModalSymbol, currentTvFeed);
+                    if (loadedTvSymbol !== neededTvSymbol) {
+                        renderTradingViewChart(currentModalSymbol, currentTvFeed);
+                    }
+                }
+            } else {
+                btnSignals.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white transition flex items-center space-x-1.5 shadow-sm';
+                btnTV.className = 'px-3.5 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white transition flex items-center space-x-1.5';
+                signalsContainer.classList.remove('hidden');
+                tvContainer.classList.add('hidden');
+                tvPicker.classList.add('hidden');
+                legend.innerText = 'Green dashed = Broken Pivot Wick | Yellow dotted = 10D Anchor | Arrow marker = Signal Trigger Candle (IST)';
+
+                if (modalSignalData && modalSignalData.candles && modalSignalData.candles.length > 0) {
+                    renderSignalChart(
+                        modalSignalData.candles,
+                        modalSignalData.brokenLevel,
+                        modalSignalData.anchorLevel,
+                        modalSignalData.signalType,
+                        modalSignalData.candleTime
+                    );
+                }
+            }
+        }
+
+        async function openChartModal(symbol, brokenLevel, anchorLevel, signalPrice, signalType, candleTime) {
+            const modal = document.getElementById('chart-modal');
+            const loader = document.getElementById('chart-loader');
+            modal.classList.remove('hidden');
+            loader.classList.remove('hidden');
+
+            currentModalSymbol = symbol;
+            modalSignalData = { symbol, brokenLevel, anchorLevel, signalPrice, signalType, candleTime, candles: [] };
+
+            document.getElementById('modal-symbol').innerText = symbol;
+            document.getElementById('modal-broken-level').innerText = brokenLevel ? '$' + brokenLevel.toFixed(4) : 'N/A';
+            document.getElementById('modal-anchor-level').innerText = anchorLevel ? '$' + anchorLevel.toFixed(4) : 'N/A';
+            document.getElementById('modal-signal-price').innerText = '$' + signalPrice.toFixed(4);
+            document.getElementById('modal-signal-time').innerText = formatIST(candleTime);
+            document.getElementById('modal-delta-link').href = `https://www.delta.exchange/app/trade/${symbol}`;
+
+            // Set TradingView labels and external link upfront
+            const tvSymbol = getTvSymbol(symbol, currentTvFeed);
+            document.getElementById('modal-tv-symbol-label').innerText = `TradingView: ${tvSymbol}`;
+            document.getElementById('modal-tv-external').href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}`;
+
+            const badge = document.getElementById('modal-badge');
+            if (signalType === 'BULLISH_CHOCH') {
+                badge.innerText = '🟢 BULLISH CHoCH';
+                badge.className = 'px-2.5 py-0.5 rounded text-xs font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800';
+            } else {
+                badge.innerText = '🔴 BEARISH CHoCH';
+                badge.className = 'px-2.5 py-0.5 rounded text-xs font-semibold bg-rose-950 text-rose-400 border border-rose-800';
+            }
+
+            // Default view: CHoCH Setup & Markers tab
+            switchChartTab('signals');
+
+            // Fetch 4H candle data for the CHoCH Setup & Markers chart
+            try {
+                const res = await fetch(`/api/candles/${symbol}`);
+                const data = await res.json();
+                loader.classList.add('hidden');
+                modalSignalData.candles = data.candles || [];
+                renderSignalChart(
+                    modalSignalData.candles,
+                    brokenLevel,
+                    anchorLevel,
+                    signalType,
+                    candleTime
+                );
+            } catch (err) {
+                console.error("Failed to load candles:", err);
+                loader.classList.add('hidden');
+            }
+        }
+
+        function renderSignalChart(candles, brokenLevel, anchorLevel, signalType, candleTime) {
+            const container = document.getElementById('chart-container');
+            container.innerHTML = '';
+
+            if (chartInstance) {
+                chartInstance.remove();
+                chartInstance = null;
+            }
+
+            chartInstance = LightweightCharts.createChart(container, {
+                autoSize: true,
+                layout: {
+                    background: { color: '#0e1117' },
+                    textColor: '#9ca3af',
+                },
+                grid: {
+                    vertLines: { color: '#1f2937' },
+                    horzLines: { color: '#1f2937' },
+                },
+                timeScale: {
+                    borderColor: '#374151',
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+                rightPriceScale: {
+                    borderColor: '#374151',
+                },
+            });
+
+            candleSeries = chartInstance.addCandlestickSeries({
+                upColor: '#10b981',
+                downColor: '#ef4444',
+                borderVisible: false,
+                wickUpColor: '#10b981',
+                wickDownColor: '#ef4444',
+            });
+
+            candleSeries.setData(candles);
+
+            // Draw Broken Wick Level Price Line
+            if (brokenLevel) {
+                candleSeries.createPriceLine({
+                    price: brokenLevel,
+                    color: '#10b981',
+                    lineWidth: 2,
+                    lineStyle: LightweightCharts.LineStyle.Dashed,
+                    axisLabelVisible: true,
+                    title: 'Broken Pivot Wick',
+                });
+            }
+
+            // Draw 10-Day Anchor Price Line
+            if (anchorLevel) {
+                candleSeries.createPriceLine({
+                    price: anchorLevel,
+                    color: '#facc15',
+                    lineWidth: 2,
+                    lineStyle: LightweightCharts.LineStyle.Dotted,
+                    axisLabelVisible: true,
+                    title: '10-Day Anchor',
+                });
+            }
+
+            // Mark the exact candle where signal occurred with upward or downward arrow
+            let targetEpoch = null;
+            if (candleTime) {
+                try {
+                    let s = String(candleTime).trim().replace(' IST', '');
+                    if (!s.includes('Z') && !s.includes('+') && !s.match(/-\d\d:\d\d$/)) {
+                        s += 'Z';
+                    }
+                    const d = new Date(s);
+                    if (!isNaN(d.getTime())) {
+                        targetEpoch = Math.floor(d.getTime() / 1000);
+                    }
+                } catch(e) {
+                    console.error("Error parsing candle time:", e);
+                }
+            }
+
+            let matchedIndex = -1;
+            if (targetEpoch !== null && candles && candles.length > 0) {
+                matchedIndex = candles.findIndex(c => c.time === targetEpoch);
+
+                if (matchedIndex === -1) {
+                    let minDiff = Infinity;
+                    for (let i = 0; i < candles.length; i++) {
+                        const diff = Math.abs(candles[i].time - targetEpoch);
+                        if (diff < minDiff && diff <= 14400) {
+                            minDiff = diff;
+                            matchedIndex = i;
+                        }
+                    }
+                }
+            }
+
+            const isBull = signalType === 'BULLISH_CHOCH';
+
+            if (matchedIndex !== -1) {
+                const targetCandle = candles[matchedIndex];
+                candleSeries.setMarkers([
+                    {
+                        time: targetCandle.time,
+                        position: isBull ? 'belowBar' : 'aboveBar',
+                        color: isBull ? '#10b981' : '#ef4444',
+                        shape: isBull ? 'arrowUp' : 'arrowDown',
+                        text: isBull ? '▲ BULLISH CHoCH' : '▼ BEARISH CHoCH',
+                        size: 2
+                    }
+                ]);
+
+                const fromIdx = Math.max(0, matchedIndex - 25);
+                const toIdx = Math.min(candles.length - 1, matchedIndex + 25);
+                chartInstance.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
+            } else {
+                chartInstance.timeScale().fitContent();
+            }
+        }
+
+        function closeChartModal() {
+            document.getElementById('chart-modal').classList.add('hidden');
+            if (chartInstance) {
+                chartInstance.remove();
+                chartInstance = null;
+            }
+            modalSignalData = null;
+        }
+
+        // Close on ESC
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeChartModal();
+        });
+
+        // Close on click anywhere outside the chart dialog window
+        let isMouseDownOnBackdrop = false;
+        const modalOverlay = document.getElementById('chart-modal');
+
+        modalOverlay.addEventListener('mousedown', (e) => {
+            isMouseDownOnBackdrop = (e.target === modalOverlay);
+        });
+
+        modalOverlay.addEventListener('click', (e) => {
+            if (e.target === modalOverlay && isMouseDownOnBackdrop) {
+                closeChartModal();
+            }
+            isMouseDownOnBackdrop = false;
+        });
+
+        // Start real-time live clock & countdown (every 1 second)
+        setInterval(updateLiveClocks, 1000);
+        updateLiveClocks();
+
+        // Periodic polling (every 10 seconds for signals & stats)
+        setInterval(() => {
+            fetchStats();
+            fetchSignals();
+        }, 10000);
+
+        // Initial load
+        fetchStats();
+        fetchSignals();
+    </script>
+</body>
+</html>
