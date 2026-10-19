@@ -323,6 +323,7 @@
         // Notification & Signal Tracking State
         let knownSignalKeys = new Set();
         let isBaselineLoaded = false;
+        let hasAutoScannedForThisClose = false;
         let savedAlertPref = localStorage.getItem('delta_alerts_enabled');
         let notificationsEnabled = savedAlertPref !== null 
             ? (savedAlertPref === 'true') 
@@ -619,12 +620,14 @@
                 countdownEl.innerText = `${nextCloseFormatted} (in ${countdownStr})`;
             }
 
-            // Candle just closed -> auto refresh signals
-            if (totalSec === 0) {
+            // Candle just closed (within 3 seconds) -> trigger automatic live scan
+            if (totalSec <= 3 && !hasAutoScannedForThisClose) {
+                hasAutoScannedForThisClose = true;
                 setTimeout(() => {
-                    fetchStats();
-                    fetchSignals();
-                }, 3000);
+                    triggerLiveScan();
+                }, 4000); // 4-second buffer so Delta Exchange has published final 4H candle bar
+            } else if (totalSec > 60) {
+                hasAutoScannedForThisClose = false;
             }
         }
 
