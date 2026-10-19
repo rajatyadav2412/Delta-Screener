@@ -202,25 +202,42 @@ def trigger_scan():
     return jsonify({"status": "started", "message": "Live scan started across all Delta Exchange perpetuals."})
 
 
+_candle_cache = {}
+
+
 @app.route("/api/candles/<symbol>")
 def get_candles(symbol):
-    """Returns 4H OHLC candle data for the interactive chart modal."""
+    """Returns 4H OHLC candle data for the interactive chart modal with in-memory caching."""
+    sym = symbol.upper()
+    now_ts = time.time()
+
+    # Serve from cache if fresh (valid for 90 seconds)
+    if sym in _candle_cache:
+        exp, cached_data = _candle_cache[sym]
+        if now_ts < exp:
+            return jsonify(cached_data)
+
     try:
-        ohlc = client.fetch_candles_paginated(symbol.upper(), resolution="4h", num_candles=400)
+        ohlc = client.fetch_candles_paginated(sym, resolution="4h", num_candles=300)
         if ohlc.empty:
-            return jsonify({"candles": []})
+            return jsonify({"symbol": sym, "candles": []})
 
         candles = []
-        for _, row in ohlc.iterrows():
+        for row in ohlc.to_dict(orient="records"):
+            t = row.get("time")
+            t_sec = int(t.timestamp()) if hasattr(t, "timestamp") else int(t)
             candles.append({
-                "time": int(pd.to_datetime(row["time"]).timestamp()),
-                "open": float(row["open"]),
-                "high": float(row["high"]),
-                "low": float(row["low"]),
-                "close": float(row["close"]),
+                "time": t_sec,
+                "open": float(row.get("open", 0)),
+                "high": float(row.get("high", 0)),
+                "low": float(row.get("low", 0)),
+                "close": float(row.get("close", 0)),
                 "volume": float(row.get("volume", 0)),
             })
-        return jsonify({"symbol": symbol.upper(), "candles": candles})
+
+        resp_data = {"symbol": sym, "candles": candles}
+        _candle_cache[sym] = (now_ts + 90, resp_data)
+        return jsonify(resp_data)
     except Exception as e:
         return jsonify({"error": str(e), "candles": []}), 500
 

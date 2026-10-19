@@ -32,8 +32,15 @@
     </script>
     <!-- TradingView Advanced Charts (Official Library) -->
     <script src="https://s3.tradingview.com/tv.js"></script>
-    <!-- TradingView Lightweight Charts (Custom Signal Engine) -->
-    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <!-- TradingView Lightweight Charts (Bundled Locally with CDN Fallback) -->
+    <script src="/static/lightweight-charts.js"></script>
+    <script>
+        if (typeof LightweightCharts === 'undefined') {
+            const s = document.createElement('script');
+            s.src = "https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js";
+            document.head.appendChild(s);
+        }
+    </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
         body {
@@ -277,16 +284,17 @@
                 </div>
             </div>
 
-            <!-- Chart Canvas Container -->
-            <div class="flex-grow relative bg-[#0e1117] w-full h-full min-h-[300px] overflow-hidden">
+            <!-- Chart Canvas Container (Flex-1 with exact absolute positioning for zero-height prevention on mobile) -->
+            <div class="flex-1 min-h-[320px] relative bg-[#0e1117] w-full overflow-hidden">
                 <!-- Custom CHoCH Engine Chart Container (Default Visible) -->
-                <div id="chart-container" class="w-full h-full"></div>
+                <div id="chart-container" class="absolute inset-0 w-full h-full"></div>
 
                 <!-- TradingView Full Advanced Chart Container (Initially Hidden) -->
-                <div id="tv-chart-container" class="w-full h-full hidden"></div>
+                <div id="tv-chart-container" class="absolute inset-0 w-full h-full hidden"></div>
 
-                <div id="chart-loader" class="absolute inset-0 bg-[#0e1117]/80 flex items-center justify-center text-xs text-gray-400 mono">
-                    Loading chart data...
+                <div id="chart-loader" class="absolute inset-0 bg-[#0e1117]/85 flex flex-col items-center justify-center text-xs text-gray-300 mono gap-3 z-10 p-4">
+                    <div class="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent shadow-lg"></div>
+                    <span id="chart-loader-text" class="text-xs text-gray-400">Loading 4H chart data...</span>
                 </div>
             </div>
 
@@ -619,12 +627,12 @@
         function formatIST(dateStr) {
             if (!dateStr) return 'N/A';
             try {
-                let s = dateStr.replace(' UTC', 'Z');
-                if (!s.includes('Z') && !s.includes('+') && !s.includes('IST')) {
+                let s = String(dateStr).trim().replace(' UTC', 'Z').replace(' IST', '').replace(' ', 'T');
+                if (!s.includes('Z') && !s.includes('+') && !s.match(/-\d\d:\d\d$/)) {
                     s += 'Z';
                 }
                 const d = new Date(s);
-                if (isNaN(d.getTime())) return dateStr.slice(0, 16);
+                if (isNaN(d.getTime())) return String(dateStr).slice(0, 16);
                 return d.toLocaleString('en-IN', {
                     timeZone: 'Asia/Kolkata',
                     day: '2-digit',
@@ -634,7 +642,7 @@
                     hour12: true
                 });
             } catch(e) {
-                return dateStr.slice(0, 16);
+                return String(dateStr).slice(0, 16);
             }
         }
 
@@ -839,6 +847,24 @@
                     loadedTvSymbol = tvSymbol;
                 } else {
                     container.innerHTML = '<div class="flex items-center justify-center h-full text-gray-400 text-xs mono">TradingView library loading...</div>';
+                    let tvRetries = 0;
+                    const tvInterval = setInterval(() => {
+                        tvRetries++;
+                        if (typeof TradingView !== 'undefined' && TradingView.widget) {
+                            clearInterval(tvInterval);
+                            renderTradingViewChart(symbol, feed);
+                        } else if (tvRetries > 10) {
+                            clearInterval(tvInterval);
+                            container.innerHTML = `
+                                <div class="flex flex-col items-center justify-center h-full text-gray-400 text-xs mono gap-2 p-4 text-center">
+                                    <div>TradingView library is taking longer than expected.</div>
+                                    <a href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}" target="_blank" class="text-blue-400 underline font-medium">
+                                        Open full chart on TradingView.com ↗
+                                    </a>
+                                </div>
+                            `;
+                        }
+                    }, 500);
                 }
             } catch (err) {
                 console.error("Failed to initialize TradingView widget:", err);
@@ -863,12 +889,12 @@
             const legend = document.getElementById('modal-footer-legend');
 
             if (tab === 'tv') {
-                btnTV.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white transition flex items-center space-x-1.5 shadow-sm';
-                btnSignals.className = 'px-3.5 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white transition flex items-center space-x-1.5';
+                btnTV.className = 'flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white transition flex items-center space-x-1.5 shadow-sm';
+                btnSignals.className = 'flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white transition flex items-center space-x-1.5';
                 tvContainer.classList.remove('hidden');
                 signalsContainer.classList.add('hidden');
                 tvPicker.classList.remove('hidden');
-                legend.innerText = 'TradingView Advanced Charts — Use the left toolbar for drawing tools and top bar for indicators.';
+                legend.innerText = 'TradingView Advanced Charts — 4H timeframe in IST.';
 
                 if (currentModalSymbol) {
                     const neededTvSymbol = getTvSymbol(currentModalSymbol, currentTvFeed);
@@ -877,8 +903,8 @@
                     }
                 }
             } else {
-                btnSignals.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white transition flex items-center space-x-1.5 shadow-sm';
-                btnTV.className = 'px-3.5 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white transition flex items-center space-x-1.5';
+                btnSignals.className = 'flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white transition flex items-center space-x-1.5 shadow-sm';
+                btnTV.className = 'flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white transition flex items-center space-x-1.5';
                 signalsContainer.classList.remove('hidden');
                 tvContainer.classList.add('hidden');
                 tvPicker.classList.add('hidden');
@@ -896,19 +922,113 @@
             }
         }
 
+        // In-memory client candle cache to make reopen instantaneous (0ms)
+        const clientCandleCache = new Map();
+
+        // Ultra-fast multi-source candle fetcher for instant chart loading
+        async function fetchCandlesWithFallback(symbol) {
+            symbol = symbol.toUpperCase();
+            const now = Math.floor(Date.now() / 1000);
+
+            // 1. Check in-memory cache (fresh for 120s)
+            if (clientCandleCache.has(symbol)) {
+                const cached = clientCandleCache.get(symbol);
+                if (now - cached.timestamp < 120 && cached.candles && cached.candles.length > 0) {
+                    return cached.candles;
+                }
+            }
+
+            const startTime = now - (300 * 14400); // 300 4H candles (50 days)
+
+            const normalizeCandles = (arr) => {
+                if (!Array.isArray(arr) || arr.length === 0) return [];
+                return arr.map(c => ({
+                    time: Number(c.time),
+                    open: parseFloat(c.open),
+                    high: parseFloat(c.high),
+                    low: parseFloat(c.low),
+                    close: parseFloat(c.close),
+                    volume: parseFloat(c.volume || 0)
+                })).filter(c => !isNaN(c.time) && !isNaN(c.close))
+                  .sort((a, b) => a.time - b.time);
+            };
+
+            // Strategy 1: Direct Delta Exchange India REST API
+            // Delta API supports CORS (*) and responds directly to mobile browsers in ~200ms
+            // bypassing any US serverless cold-start delays.
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2800);
+                const directUrl = `https://api.india.delta.exchange/v2/history/candles?symbol=${symbol}&resolution=4h&start=${startTime}&end=${now}`;
+                const res = await fetch(directUrl, { signal: controller.signal });
+                clearTimeout(timeoutId);
+                if (res.ok) {
+                    const data = await res.json();
+                    const candles = normalizeCandles(data.result);
+                    if (candles.length > 0) {
+                        clientCandleCache.set(symbol, { timestamp: now, candles });
+                        return candles;
+                    }
+                }
+            } catch (e) {
+                console.log("Direct Delta India API attempt skipped/timed out:", e);
+            }
+
+            // Strategy 2: Local / Vercel Server API Route
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 3500);
+                const res = await fetch(`/api/candles/${symbol}`, { signal: controller.signal });
+                clearTimeout(timeoutId);
+                if (res.ok) {
+                    const data = await res.json();
+                    const candles = normalizeCandles(data.candles);
+                    if (candles.length > 0) {
+                        clientCandleCache.set(symbol, { timestamp: now, candles });
+                        return candles;
+                    }
+                }
+            } catch (e) {
+                console.log("Server candles route attempt skipped/timed out:", e);
+            }
+
+            // Strategy 3: Global Delta Exchange API Fallback
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2800);
+                const globalUrl = `https://api.delta.exchange/v2/history/candles?symbol=${symbol}&resolution=4h&start=${startTime}&end=${now}`;
+                const res = await fetch(globalUrl, { signal: controller.signal });
+                clearTimeout(timeoutId);
+                if (res.ok) {
+                    const data = await res.json();
+                    const candles = normalizeCandles(data.result);
+                    if (candles.length > 0) {
+                        clientCandleCache.set(symbol, { timestamp: now, candles });
+                        return candles;
+                    }
+                }
+            } catch (e) {
+                console.log("Global Delta API attempt skipped/timed out:", e);
+            }
+
+            return [];
+        }
+
         async function openChartModal(symbol, brokenLevel, anchorLevel, signalPrice, signalType, candleTime) {
             const modal = document.getElementById('chart-modal');
             const loader = document.getElementById('chart-loader');
+            const loaderText = document.getElementById('chart-loader-text');
             modal.classList.remove('hidden');
             loader.classList.remove('hidden');
+            if (loaderText) loaderText.innerText = 'Loading 4H chart data...';
 
             currentModalSymbol = symbol;
             modalSignalData = { symbol, brokenLevel, anchorLevel, signalPrice, signalType, candleTime, candles: [] };
 
             document.getElementById('modal-symbol').innerText = symbol;
-            document.getElementById('modal-broken-level').innerText = brokenLevel ? '$' + brokenLevel.toFixed(4) : 'N/A';
-            document.getElementById('modal-anchor-level').innerText = anchorLevel ? '$' + anchorLevel.toFixed(4) : 'N/A';
-            document.getElementById('modal-signal-price').innerText = '$' + signalPrice.toFixed(4);
+            document.getElementById('modal-broken-level').innerText = brokenLevel ? '$' + Number(brokenLevel).toFixed(4) : 'N/A';
+            document.getElementById('modal-anchor-level').innerText = anchorLevel ? '$' + Number(anchorLevel).toFixed(4) : 'N/A';
+            document.getElementById('modal-signal-price').innerText = '$' + Number(signalPrice).toFixed(4);
             document.getElementById('modal-signal-time').innerText = formatIST(candleTime);
             document.getElementById('modal-delta-link').href = `https://www.delta.exchange/app/trade/${symbol}`;
 
@@ -929,12 +1049,10 @@
             // Default view: CHoCH Setup & Markers tab
             switchChartTab('signals');
 
-            // Fetch 4H candle data for the CHoCH Setup & Markers chart
             try {
-                const res = await fetch(`/api/candles/${symbol}`);
-                const data = await res.json();
+                const candles = await fetchCandlesWithFallback(symbol);
+                modalSignalData.candles = candles || [];
                 loader.classList.add('hidden');
-                modalSignalData.candles = data.candles || [];
                 renderSignalChart(
                     modalSignalData.candles,
                     brokenLevel,
@@ -945,6 +1063,7 @@
             } catch (err) {
                 console.error("Failed to load candles:", err);
                 loader.classList.add('hidden');
+                renderSignalChart([], brokenLevel, anchorLevel, signalType, candleTime);
             }
         }
 
@@ -955,6 +1074,31 @@
             if (chartInstance) {
                 chartInstance.remove();
                 chartInstance = null;
+            }
+
+            if (typeof LightweightCharts === 'undefined') {
+                container.innerHTML = '<div class="flex items-center justify-center h-full text-yellow-400 text-xs mono">Initializing charting engine...</div>';
+                setTimeout(() => {
+                    if (typeof LightweightCharts !== 'undefined') {
+                        renderSignalChart(candles, brokenLevel, anchorLevel, signalType, candleTime);
+                    } else {
+                        switchChartTab('tv');
+                    }
+                }, 500);
+                return;
+            }
+
+            if (!candles || candles.length === 0) {
+                container.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full text-gray-400 text-xs mono gap-3 p-4 text-center">
+                        <div class="text-sm font-semibold text-gray-300">No 4H candle data returned</div>
+                        <div class="text-gray-500 max-w-sm">Unable to load historical candles for this pair. You can view the live chart in the TradingView tab.</div>
+                        <button onclick="switchChartTab('tv')" class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium transition text-xs flex items-center space-x-1.5 shadow-sm">
+                            <span>📈 View in TradingView Tab</span>
+                        </button>
+                    </div>
+                `;
+                return;
             }
 
             chartInstance = LightweightCharts.createChart(container, {
@@ -990,7 +1134,7 @@
             // Draw Broken Wick Level Price Line
             if (brokenLevel) {
                 candleSeries.createPriceLine({
-                    price: brokenLevel,
+                    price: parseFloat(brokenLevel),
                     color: '#10b981',
                     lineWidth: 2,
                     lineStyle: LightweightCharts.LineStyle.Dashed,
@@ -1002,7 +1146,7 @@
             // Draw 10-Day Anchor Price Line
             if (anchorLevel) {
                 candleSeries.createPriceLine({
-                    price: anchorLevel,
+                    price: parseFloat(anchorLevel),
                     color: '#facc15',
                     lineWidth: 2,
                     lineStyle: LightweightCharts.LineStyle.Dotted,
@@ -1015,7 +1159,7 @@
             let targetEpoch = null;
             if (candleTime) {
                 try {
-                    let s = String(candleTime).trim().replace(' IST', '');
+                    let s = String(candleTime).trim().replace(' UTC', 'Z').replace(' IST', '').replace(' ', 'T');
                     if (!s.includes('Z') && !s.includes('+') && !s.match(/-\d\d:\d\d$/)) {
                         s += 'Z';
                     }
@@ -1059,11 +1203,22 @@
                     }
                 ]);
 
-                const fromIdx = Math.max(0, matchedIndex - 25);
-                const toIdx = Math.min(candles.length - 1, matchedIndex + 25);
-                chartInstance.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
+                const setRange = () => {
+                    if (!chartInstance) return;
+                    const fromIdx = Math.max(0, matchedIndex - 25);
+                    const toIdx = Math.min(candles.length - 1, matchedIndex + 25);
+                    chartInstance.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
+                };
+                setRange();
+                requestAnimationFrame(setRange);
+                setTimeout(setRange, 80);
             } else {
-                chartInstance.timeScale().fitContent();
+                const fit = () => {
+                    if (chartInstance) chartInstance.timeScale().fitContent();
+                };
+                fit();
+                requestAnimationFrame(fit);
+                setTimeout(fit, 80);
             }
         }
 
@@ -1089,11 +1244,27 @@
             isMouseDownOnBackdrop = (e.target === modalOverlay);
         });
 
+        modalOverlay.addEventListener('touchstart', (e) => {
+            if (e.target === modalOverlay) {
+                isMouseDownOnBackdrop = true;
+            }
+        }, { passive: true });
+
         modalOverlay.addEventListener('click', (e) => {
             if (e.target === modalOverlay && isMouseDownOnBackdrop) {
                 closeChartModal();
             }
             isMouseDownOnBackdrop = false;
+        });
+
+        // Auto-fit chart on window resize / mobile device orientation change
+        window.addEventListener('resize', () => {
+            if (chartInstance && modalSignalData) {
+                const container = document.getElementById('chart-container');
+                if (container && container.clientHeight > 0) {
+                    chartInstance.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+                }
+            }
         });
 
         // Start real-time live clock & countdown (every 1 second)

@@ -93,38 +93,46 @@ class DeltaExchangeClient:
             params["end"] = end_time
 
         try:
-            response = self.session.get(endpoint, params=params, timeout=30)
+            response = self.session.get(endpoint, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
             candles = data.get("result", [])
-
-            if not candles:
-                return pd.DataFrame()
-
-            # Delta Exchange returns candles as dicts with keys:
-            # close, high, low, open, time, volume
-            df = pd.DataFrame(candles)
-
-            # Ensure required columns exist
-            required = ["time", "open", "high", "low", "close"]
-            if not all(col in df.columns for col in required):
-                return pd.DataFrame()
-
-            # Sort chronologically (API may return newest first)
-            df = df.sort_values("time").reset_index(drop=True)
-
-            # Convert to numeric
-            for col in ["open", "high", "low", "close", "volume"]:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors="coerce")
-
-            df["time"] = pd.to_datetime(df["time"], unit="s").dt.tz_localize("UTC").dt.tz_convert(IST)
-
-            return df
-
         except requests.exceptions.RequestException as e:
-            print(f"  [ERROR] Failed to fetch candles for {symbol}: {e}")
+            if "india" in self.base_url:
+                try:
+                    fb_res = self.session.get("https://api.delta.exchange/v2/history/candles", params=params, timeout=8)
+                    candles = fb_res.json().get("result", []) if fb_res.ok else []
+                except Exception:
+                    candles = []
+            else:
+                candles = []
+            if not candles:
+                print(f"  [ERROR] Failed to fetch candles for {symbol}: {e}")
+                return pd.DataFrame()
+
+        if not candles:
             return pd.DataFrame()
+
+        # Delta Exchange returns candles as dicts with keys:
+        # close, high, low, open, time, volume
+        df = pd.DataFrame(candles)
+
+        # Ensure required columns exist
+        required = ["time", "open", "high", "low", "close"]
+        if not all(col in df.columns for col in required):
+            return pd.DataFrame()
+
+        # Sort chronologically (API may return newest first)
+        df = df.sort_values("time").reset_index(drop=True)
+
+        # Convert to numeric
+        for col in ["open", "high", "low", "close", "volume"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        df["time"] = pd.to_datetime(df["time"], unit="s").dt.tz_localize("UTC").dt.tz_convert(IST)
+
+        return df
 
     def fetch_candles_paginated(
         self,
