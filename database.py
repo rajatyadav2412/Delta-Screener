@@ -50,11 +50,42 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_symbol ON signals(symbol)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_candle_time ON signals(candle_time)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_type ON signals(signal_type)")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
         conn.commit()
         conn.close()
     except sqlite3.OperationalError:
         # Read-only database on serverless platforms
         pass
+
+
+def set_metadata(key: str, value: str):
+    """Store or update a key-value pair in the metadata table."""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)", (key, str(value)))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_metadata(key: str) -> Optional[str]:
+    """Retrieve a value by key from the metadata table."""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM metadata WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
 
 
 def save_signal(
@@ -95,6 +126,14 @@ def save_signal(
             macro_anchor_label, macro_anchor_price, bos_type, bos_time,
             price_at_signal, current_price, timeframe, bars_gap
         ))
+
+        # Update last_scan_time in metadata
+        display_time = datetime.now(IST).strftime("%d %b, %I:%M %p IST")
+        try:
+            cursor.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('last_scan_time', ?)", (display_time,))
+        except Exception:
+            pass
+
         conn.commit()
         conn.close()
         return True
@@ -137,7 +176,7 @@ def get_history(
 
 
 def get_stats() -> Dict:
-    """Get high-level summary counts."""
+    """Get high-level summary counts and last scan time."""
     conn = get_db()
     cursor = conn.cursor()
 
@@ -153,12 +192,41 @@ def get_stats() -> Dict:
     cursor.execute("SELECT COUNT(DISTINCT symbol) FROM signals")
     unique_symbols = cursor.fetchone()[0]
 
+    last_scan_time = None
+    try:
+        cursor.execute("SELECT value FROM metadata WHERE key = 'last_scan_time'")
+        row = cursor.fetchone()
+        if row and row[0]:
+            last_scan_time = row[0]
+    except Exception:
+        pass
+
+    if not last_scan_time:
+        try:
+            cursor.execute("SELECT detected_at FROM signals ORDER BY id DESC LIMIT 1")
+            row = cursor.fetchone()
+            if row and row[0]:
+                raw = str(row[0]).strip()
+                try:
+                    parts = raw.split(" ")
+                    if len(parts) >= 4:
+                        dt = datetime.strptime(parts[0], "%Y-%m-%d")
+                        time_part = f"{parts[1]} {parts[2]} IST"
+                        last_scan_time = f"{dt.strftime('%d %b')}, {time_part}"
+                    else:
+                        last_scan_time = raw
+                except Exception:
+                    last_scan_time = raw
+        except Exception:
+            pass
+
     conn.close()
     return {
         "total_signals": total,
         "bullish_count": bullish,
         "bearish_count": bearish,
         "unique_symbols": unique_symbols,
+        "last_scan_time": last_scan_time,
     }
 
 

@@ -194,8 +194,9 @@
                     <span class="absolute right-3 top-2 text-gray-500 text-xs">🔍</span>
                 </div>
 
-                <div class="text-[11px] sm:text-xs text-gray-400 whitespace-nowrap">
-                    Last: <span id="last-scan-label" class="text-gray-300 mono text-[10px] sm:text-[11px]">Syncing...</span>
+                <div class="text-[11px] sm:text-xs text-gray-400 whitespace-nowrap flex items-center space-x-1.5 bg-darkbg px-2.5 py-1 rounded-lg border border-bordercolor/80">
+                    <span class="text-gray-400">Last Updated:</span>
+                    <span id="last-scan-label" class="text-blue-400 font-semibold mono text-[10px] sm:text-[11px]">Loading...</span>
                 </div>
             </div>
         </div>
@@ -523,6 +524,13 @@
                 }
 
                 renderTable(allSignals);
+
+                const lastLabel = document.getElementById('last-scan-label');
+                if (lastLabel && (lastLabel.innerText === 'Loading...' || lastLabel.innerText === 'Syncing...')) {
+                    if (allSignals && allSignals.length > 0 && allSignals[0].candle_time) {
+                        lastLabel.innerText = formatIST(allSignals[0].candle_time);
+                    }
+                }
             } catch (err) {
                 console.error("Failed to fetch signals:", err);
             }
@@ -540,7 +548,9 @@
                 document.getElementById('stat-symbols').innerText = data.unique_symbols || 237;
 
                 if (data.last_scan_time) {
-                    document.getElementById('last-scan-label').innerText = data.last_scan_time.slice(11, 19) + ' UTC';
+                    document.getElementById('last-scan-label').innerText = data.last_scan_time;
+                } else if (allSignals && allSignals.length > 0 && allSignals[0].candle_time) {
+                    document.getElementById('last-scan-label').innerText = formatIST(allSignals[0].candle_time);
                 }
 
                 // Update scanning button state (both mobile and desktop)

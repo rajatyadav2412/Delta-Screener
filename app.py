@@ -125,9 +125,11 @@ def run_full_scan():
             except Exception:
                 continue
 
-        scanner_state["last_scan_time"] = now_str
+        now_ist = datetime.now(IST).strftime("%d %b, %I:%M %p IST")
+        scanner_state["last_scan_time"] = now_ist
         scanner_state["last_scan_count"] = scanned_count
         scanner_state["last_new_alerts"] = new_count
+        database.set_metadata("last_scan_time", now_ist)
 
     finally:
         scanner_state["is_scanning"] = False
@@ -186,7 +188,7 @@ def get_stats():
     return jsonify({
         **stats,
         "is_scanning": scanner_state["is_scanning"],
-        "last_scan_time": scanner_state["last_scan_time"],
+        "last_scan_time": scanner_state["last_scan_time"] or stats.get("last_scan_time"),
         "next_close_time": next_close.strftime("%I:%M %p IST"),
         "next_close_seconds": secs_left,
     })
