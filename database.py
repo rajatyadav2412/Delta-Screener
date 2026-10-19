@@ -7,23 +7,50 @@ exact history: when, what instrument, price, broken level, and 10-day anchor.
 
 import sqlite3
 import os
+import shutil
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Optional
 
 IST = timezone(timedelta(hours=5, minutes=30), name="IST")
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "signals_history.db")
+ORIGINAL_DB_PATH = os.path.join(os.path.dirname(__file__), "signals_history.db")
 
 
-def get_db():
-    conn = sqlite3.connect(DB_PATH, timeout=15.0)
-    conn.row_factory = sqlite3.Row
+def resolve_db_path() -> str:
+    """
+    On Vercel and AWS Lambda, the root deployment directory is strictly read-only.
+    Copy the DB to /tmp so the app can freely read/write without OperationalErrors.
+    """
+    is_serverless = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+    if is_serverless:
+        tmp_path = "/tmp/signals_history.db"
+        try:
+            if os.path.exists(ORIGINAL_DB_PATH):
+                if not os.path.exists(tmp_path) or (os.path.getmtime(ORIGINAL_DB_PATH) > os.path.getmtime(tmp_path)):
+                    shutil.copy2(ORIGINAL_DB_PATH, tmp_path)
+            if os.path.exists(tmp_path):
+                return tmp_path
+        except Exception:
+            pass
+    return ORIGINAL_DB_PATH
+
+
+DB_PATH = resolve_db_path()
+
+
+def get_db(read_only: bool = False):
+    db_file = resolve_db_path()
     try:
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-    except Exception:
-        pass
+        if read_only:
+            conn = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True, timeout=10.0)
+        else:
+            conn = sqlite3.connect(db_file, timeout=10.0)
+    except sqlite3.OperationalError:
+        # Fallback gracefully to read-only URI connection if write access is denied
+        conn = sqlite3.connect(f"file:{ORIGINAL_DB_PATH}?mode=ro", uri=True, timeout=10.0)
+    conn.row_factory = sqlite3.Row
     return conn
+
 
 
 
@@ -188,82 +215,97 @@ def get_history(
     type_filter: Optional[str] = None
 ) -> List[Dict]:
     """Retrieve historical signals with optional filtering and pagination."""
-    conn = get_db()
-    cursor = conn.cursor()
+    try:
+        conn = get_db(read_only=True)
+        cursor = conn.cursor()
 
-    query = "SELECT * FROM signals WHERE 1=1"
-    params = []
+        query = "SELECT * FROM signals WHERE 1=1"
+        params = []
 
-    if symbol_filter:
-        query += " AND symbol LIKE ?"
-        params.append(f"%{symbol_filter.upper()}%")
+        if symbol_filter:
+            query += " AND symbol LIKE ?"
+            params.append(f"%{symbol_filter.upper()}%")
 
-    if type_filter and type_filter != "ALL":
-        query += " AND signal_type = ?"
-        params.append(type_filter)
+        if type_filter and type_filter != "ALL":
+            query += " AND signal_type = ?"
+            params.append(type_filter)
 
-    query += " ORDER BY candle_time DESC, id DESC LIMIT ? OFFSET ?"
-    params.extend([limit, offset])
+        query += " ORDER BY candle_time DESC, id DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
 
-    cursor.execute(query, params)
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+    except Exception as e:
+        print(f"[ERROR] Failed to query signals history: {e}")
+        return []
 
 
 def get_stats() -> Dict:
     """Get high-level summary counts and last scan time."""
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT COUNT(*) FROM signals")
-    total = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM signals WHERE direction = 1")
-    bullish = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM signals WHERE direction = -1")
-    bearish = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(DISTINCT symbol) FROM signals")
-    unique_symbols = cursor.fetchone()[0]
-
-    last_scan_time = None
     try:
-        cursor.execute("SELECT value FROM metadata WHERE key = 'last_scan_time'")
-        row = cursor.fetchone()
-        if row and row[0]:
-            last_scan_time = row[0]
-    except Exception:
-        pass
+        conn = get_db(read_only=True)
+        cursor = conn.cursor()
 
-    if not last_scan_time:
+        cursor.execute("SELECT COUNT(*) FROM signals")
+        total = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM signals WHERE direction = 1")
+        bullish = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM signals WHERE direction = -1")
+        bearish = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(DISTINCT symbol) FROM signals")
+        unique_symbols = cursor.fetchone()[0]
+
+        last_scan_time = None
         try:
-            cursor.execute("SELECT detected_at FROM signals ORDER BY id DESC LIMIT 1")
+            cursor.execute("SELECT value FROM metadata WHERE key = 'last_scan_time'")
             row = cursor.fetchone()
             if row and row[0]:
-                raw = str(row[0]).strip()
-                try:
-                    parts = raw.split(" ")
-                    if len(parts) >= 4:
-                        dt = datetime.strptime(parts[0], "%Y-%m-%d")
-                        time_part = f"{parts[1]} {parts[2]} IST"
-                        last_scan_time = f"{dt.strftime('%d %b')}, {time_part}"
-                    else:
-                        last_scan_time = raw
-                except Exception:
-                    last_scan_time = raw
+                last_scan_time = row[0]
         except Exception:
             pass
 
-    conn.close()
-    return {
-        "total_signals": total,
-        "bullish_count": bullish,
-        "bearish_count": bearish,
-        "unique_symbols": unique_symbols,
-        "last_scan_time": last_scan_time,
-    }
+        if not last_scan_time:
+            try:
+                cursor.execute("SELECT detected_at FROM signals ORDER BY id DESC LIMIT 1")
+                row = cursor.fetchone()
+                if row and row[0]:
+                    raw = str(row[0]).strip()
+                    try:
+                        parts = raw.split(" ")
+                        if len(parts) >= 4:
+                            dt = datetime.strptime(parts[0], "%Y-%m-%d")
+                            time_part = f"{parts[1]} {parts[2]} IST"
+                            last_scan_time = f"{dt.strftime('%d %b')}, {time_part}"
+                        else:
+                            last_scan_time = raw
+                    except Exception:
+                        last_scan_time = raw
+            except Exception:
+                pass
+
+        conn.close()
+        return {
+            "total_signals": total,
+            "bullish_count": bullish,
+            "bearish_count": bearish,
+            "unique_symbols": unique_symbols,
+            "last_scan_time": last_scan_time,
+        }
+    except Exception as e:
+        print(f"[ERROR] Failed to get stats: {e}")
+        return {
+            "total_signals": 0,
+            "bullish_count": 0,
+            "bearish_count": 0,
+            "unique_symbols": 0,
+            "last_scan_time": None,
+        }
+
 
 
 # Initialize DB on module import
