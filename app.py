@@ -9,6 +9,7 @@ import os
 import json
 import time
 import threading
+import concurrent.futures
 from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template, jsonify, request
 
@@ -72,13 +73,12 @@ def get_seconds_until_next_4h_close() -> tuple[int, datetime]:
 
 
 def run_full_scan():
-    """Scans all perpetual contracts, saves any new signals into SQLite."""
+    """Scans all perpetual contracts concurrently, saves any new signals into SQLite."""
     global scanner_state
     if scanner_state["is_scanning"]:
         return
 
     scanner_state["is_scanning"] = True
-    now_str = datetime.now(IST).strftime("%Y-%m-%d %I:%M:%S %p IST")
 
     try:
         instruments = client.fetch_instruments(contract_types=["perpetual_futures"])
@@ -86,46 +86,52 @@ def run_full_scan():
         instruments = instruments[:max_inst]
 
         new_count = 0
-        scanned_count = 0
+        scanned_count = len(instruments)
 
-        for inst in instruments:
+        def scan_single_instrument(inst):
             sym = inst["symbol"]
-            scanned_count += 1
             try:
-                ohlc = client.fetch_candles_paginated(sym, resolution="4h", num_candles=500)
-                if ohlc.empty or len(ohlc) < 70:
-                    continue
+                ohlc = client.fetch_candles_paginated(sym, resolution="4h", num_candles=150)
+                if ohlc.empty or len(ohlc) < 60:
+                    return None
 
-                res = detector.analyze(ohlc)
-                curr_price = float(ohlc["close"].iloc[-1])
-
-                for sig in res["signals"]:
-                    choch = sig.choch_event
-                    bos = sig.bos_event
-                    is_new = database.save_signal(
-                        symbol=sym,
-                        signal_type="BULLISH_CHOCH" if choch.direction == 1 else "BEARISH_CHOCH",
-                        direction=choch.direction,
-                        candle_time=str(choch.time),
-                        broken_pivot_label=choch.broken_pivot.label,
-                        broken_wick_level=choch.broken_pivot.candle_high if choch.direction == 1 else choch.broken_pivot.candle_low,
-                        macro_anchor_label=choch.macro_anchor.label if choch.macro_anchor else "",
-                        macro_anchor_price=choch.macro_anchor.price if choch.macro_anchor else 0.0,
-                        bos_type=f"BOS {bos.broken_pivot.label}",
-                        bos_time=str(bos.time),
-                        price_at_signal=choch.candle_close,
-                        current_price=curr_price,
-                        bars_gap=sig.bars_between,
-                        timeframe="4h",
-                    )
-                    if is_new:
-                        new_count += 1
-
-                time.sleep(0.08)
+                sig = detector.has_recent_signal(ohlc, lookback_bars=2)
+                if sig is not None:
+                    curr_price = float(ohlc["close"].iloc[-1])
+                    return sym, sig, curr_price
+                return None
             except Exception:
-                continue
+                return None
 
-        now_ist = datetime.now(IST).strftime("%d %b, %I:%M %p IST")
+        # Run concurrent scan with 35 workers (~3 seconds total across 237 instruments)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=35) as executor:
+            recent_alerts = [r for r in executor.map(scan_single_instrument, instruments) if r is not None]
+
+        signals_to_save = []
+        for sym, sig, curr_price in recent_alerts:
+            choch = sig.choch_event
+            bos = sig.bos_event
+            signals_to_save.append({
+                "symbol": sym,
+                "signal_type": "BULLISH_CHOCH" if choch.direction == 1 else "BEARISH_CHOCH",
+                "direction": choch.direction,
+                "candle_time": str(choch.time),
+                "broken_pivot_label": choch.broken_pivot.label,
+                "broken_wick_level": choch.broken_pivot.candle_high if choch.direction == 1 else choch.broken_pivot.candle_low,
+                "macro_anchor_label": choch.macro_anchor.label if choch.macro_anchor else "",
+                "macro_anchor_price": choch.macro_anchor.price if choch.macro_anchor else 0.0,
+                "bos_type": f"BOS {bos.broken_pivot.label}",
+                "bos_time": str(bos.time),
+                "price_at_signal": choch.candle_close,
+                "current_price": curr_price,
+                "bars_gap": sig.bars_between,
+                "timeframe": "4h",
+            })
+
+        new_count = database.save_signals_batch(signals_to_save)
+
+
+        now_ist = datetime.now(IST).strftime("%d %b, %I:%M:%S %p IST")
         scanner_state["last_scan_time"] = now_ist
         scanner_state["last_scan_count"] = scanned_count
         scanner_state["last_new_alerts"] = new_count
@@ -197,11 +203,22 @@ def get_stats():
 @app.route("/api/scan", methods=["POST"])
 def trigger_scan():
     if scanner_state["is_scanning"]:
-        return jsonify({"status": "already_scanning", "message": "Scan already in progress."})
+        return jsonify({
+            "status": "already_scanning",
+            "message": "Scan already in progress.",
+            "last_scan_time": scanner_state["last_scan_time"] or database.get_stats().get("last_scan_time")
+        })
 
-    t = threading.Thread(target=run_full_scan, daemon=True)
-    t.start()
-    return jsonify({"status": "started", "message": "Live scan started across all Delta Exchange perpetuals."})
+    # Execute concurrent scan across all Delta perpetuals (~3.5 seconds)
+    run_full_scan()
+    now_time = scanner_state["last_scan_time"] or database.get_stats().get("last_scan_time")
+    return jsonify({
+        "status": "completed",
+        "message": "Live scan completed across all Delta Exchange perpetuals.",
+        "last_scan_time": now_time,
+        "scanned_count": scanner_state["last_scan_count"],
+        "new_alerts": scanner_state["last_new_alerts"],
+    })
 
 
 _candle_cache = {}

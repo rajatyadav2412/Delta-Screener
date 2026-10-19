@@ -19,6 +19,9 @@ class DeltaExchangeClient:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=40, pool_maxsize=60)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
         self.session.headers.update({
             "api-key": self.api_key,
             "Content-Type": "application/json",
@@ -67,6 +70,7 @@ class DeltaExchangeClient:
         resolution: str = "4h",
         start_time: Optional[int] = None,
         end_time: Optional[int] = None,
+        timeout: int = 6,
     ) -> pd.DataFrame:
         """
         Fetch OHLC candle data for a given symbol.
@@ -76,6 +80,7 @@ class DeltaExchangeClient:
             resolution: Candle timeframe - "1m","5m","15m","1h","4h","1d" etc.
             start_time: Start epoch timestamp in seconds
             end_time: End epoch timestamp in seconds
+            timeout: HTTP request timeout in seconds
 
         Returns:
             DataFrame with columns: time, open, high, low, close, volume
@@ -93,21 +98,20 @@ class DeltaExchangeClient:
             params["end"] = end_time
 
         try:
-            response = self.session.get(endpoint, params=params, timeout=10)
+            response = self.session.get(endpoint, params=params, timeout=timeout)
             response.raise_for_status()
             data = response.json()
             candles = data.get("result", [])
         except requests.exceptions.RequestException as e:
             if "india" in self.base_url:
                 try:
-                    fb_res = self.session.get("https://api.delta.exchange/v2/history/candles", params=params, timeout=8)
+                    fb_res = self.session.get("https://api.delta.exchange/v2/history/candles", params=params, timeout=timeout)
                     candles = fb_res.json().get("result", []) if fb_res.ok else []
                 except Exception:
                     candles = []
             else:
                 candles = []
             if not candles:
-                print(f"  [ERROR] Failed to fetch candles for {symbol}: {e}")
                 return pd.DataFrame()
 
         if not candles:
@@ -139,6 +143,7 @@ class DeltaExchangeClient:
         symbol: str,
         resolution: str = "4h",
         num_candles: int = 500,
+        timeout: int = 6,
     ) -> pd.DataFrame:
         """
         Fetch enough candles by paginating backward from current time.
@@ -148,6 +153,7 @@ class DeltaExchangeClient:
             symbol: Trading pair symbol
             resolution: Candle timeframe
             num_candles: Approx number of candles to fetch
+            timeout: HTTP request timeout in seconds
 
         Returns:
             DataFrame with OHLC data
@@ -168,4 +174,6 @@ class DeltaExchangeClient:
             resolution=resolution,
             start_time=start_time,
             end_time=end_time,
+            timeout=timeout,
         )
+

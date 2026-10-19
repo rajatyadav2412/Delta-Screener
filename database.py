@@ -16,9 +16,15 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "signals_history.db")
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+    except Exception:
+        pass
     return conn
+
 
 
 def init_db():
@@ -88,6 +94,43 @@ def get_metadata(key: str) -> Optional[str]:
         return None
 
 
+def save_signals_batch(signals_list: List[Dict]) -> int:
+    """Save multiple signals in a single atomic transaction. Returns count of new signals."""
+    if not signals_list:
+        return 0
+    new_count = 0
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        detected_at = datetime.now(IST).strftime("%Y-%m-%d %I:%M:%S %p IST")
+        for s in signals_list:
+            unique_key = f"{s['symbol']}|{s['signal_type']}|{s['candle_time']}|{s['broken_wick_level']:.6f}"
+            try:
+                cursor.execute("""
+                    INSERT INTO signals (
+                        unique_key, symbol, signal_type, direction, candle_time,
+                        detected_at, broken_pivot_label, broken_wick_level,
+                        macro_anchor_label, macro_anchor_price, bos_type, bos_time,
+                        price_at_signal, current_price, timeframe, bars_gap
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    unique_key, s["symbol"], s["signal_type"], s["direction"], s["candle_time"],
+                    detected_at, s.get("broken_pivot_label", ""), s.get("broken_wick_level", 0.0),
+                    s.get("macro_anchor_label", ""), s.get("macro_anchor_price", 0.0),
+                    s.get("bos_type", ""), s.get("bos_time", ""),
+                    s.get("price_at_signal", 0.0), s.get("current_price", 0.0),
+                    s.get("timeframe", "4h"), s.get("bars_gap", 0)
+                ))
+                new_count += 1
+            except sqlite3.IntegrityError:
+                pass
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+    return new_count
+
+
 def save_signal(
     symbol: str,
     signal_type: str,
@@ -126,14 +169,6 @@ def save_signal(
             macro_anchor_label, macro_anchor_price, bos_type, bos_time,
             price_at_signal, current_price, timeframe, bars_gap
         ))
-
-        # Update last_scan_time in metadata
-        display_time = datetime.now(IST).strftime("%d %b, %I:%M %p IST")
-        try:
-            cursor.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('last_scan_time', ?)", (display_time,))
-        except Exception:
-            pass
-
         conn.commit()
         conn.close()
         return True
@@ -143,6 +178,7 @@ def save_signal(
     except sqlite3.OperationalError:
         # Read-only database on serverless platforms
         return False
+
 
 
 def get_history(

@@ -524,13 +524,6 @@
                 }
 
                 renderTable(allSignals);
-
-                const lastLabel = document.getElementById('last-scan-label');
-                if (lastLabel && (lastLabel.innerText === 'Loading...' || lastLabel.innerText === 'Syncing...')) {
-                    if (allSignals && allSignals.length > 0 && allSignals[0].candle_time) {
-                        lastLabel.innerText = formatIST(allSignals[0].candle_time);
-                    }
-                }
             } catch (err) {
                 console.error("Failed to fetch signals:", err);
             }
@@ -548,9 +541,10 @@
                 document.getElementById('stat-symbols').innerText = data.unique_symbols || 237;
 
                 if (data.last_scan_time) {
-                    document.getElementById('last-scan-label').innerText = data.last_scan_time;
-                } else if (allSignals && allSignals.length > 0 && allSignals[0].candle_time) {
-                    document.getElementById('last-scan-label').innerText = formatIST(allSignals[0].candle_time);
+                    const lastEl = document.getElementById('last-scan-label');
+                    if (lastEl && lastEl.innerText !== 'Scanning market...') {
+                        lastEl.innerText = data.last_scan_time;
+                    }
                 }
 
                 // Update scanning button state (both mobile and desktop)
@@ -784,11 +778,41 @@
         }
 
         async function triggerLiveScan() {
+            const scanBtnDesk = document.getElementById('btn-scan-desk');
+            const scanBtnMob = document.getElementById('btn-scan-mob');
+            const scanIconDesk = document.getElementById('scan-icon');
+            const scanIconMob = document.getElementById('scan-icon-mob');
+            const scanTextDesk = document.getElementById('scan-btn-text');
+            const scanTextMob = document.getElementById('scan-btn-text-mob');
+            const lastLabel = document.getElementById('last-scan-label');
+
             try {
-                await fetch('/api/scan', { method: 'POST' });
-                fetchStats();
+                if (scanIconDesk) scanIconDesk.classList.add('animate-spin');
+                if (scanIconMob) scanIconMob.classList.add('animate-spin');
+                if (scanTextDesk) scanTextDesk.innerText = 'Scanning...';
+                if (scanTextMob) scanTextMob.innerText = 'Scanning...';
+                if (scanBtnDesk) scanBtnDesk.disabled = true;
+                if (scanBtnMob) scanBtnMob.disabled = true;
+                if (lastLabel) lastLabel.innerText = 'Scanning market...';
+
+                const res = await fetch('/api/scan', { method: 'POST' });
+                const data = await res.json();
+
+                if (data.last_scan_time && lastLabel) {
+                    lastLabel.innerText = data.last_scan_time;
+                }
+
+                await fetchStats();
+                await fetchSignals();
             } catch (err) {
-                console.error(err);
+                console.error("Scan error:", err);
+            } finally {
+                if (scanIconDesk) scanIconDesk.classList.remove('animate-spin');
+                if (scanIconMob) scanIconMob.classList.remove('animate-spin');
+                if (scanTextDesk) scanTextDesk.innerText = 'Scan Now';
+                if (scanTextMob) scanTextMob.innerText = 'Scan Now';
+                if (scanBtnDesk) scanBtnDesk.disabled = false;
+                if (scanBtnMob) scanBtnMob.disabled = false;
             }
         }
 

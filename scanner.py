@@ -357,7 +357,7 @@ def run_scanner(config: dict, run_once: bool = False):
         try:
             alerts = scan_instruments(client, detector, config)
             display_and_notify(alerts, now_str)
-            database.set_metadata("last_scan_time", datetime.now(IST).strftime("%d %b, %I:%M %p IST"))
+            database.set_metadata("last_scan_time", datetime.now(IST).strftime("%d %b, %I:%M:%S %p IST"))
         except KeyboardInterrupt:
             print(f"\n{Fore.YELLOW}  Scanner interrupted by user.{Style.RESET_ALL}")
             break
