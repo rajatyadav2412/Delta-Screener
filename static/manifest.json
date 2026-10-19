@@ -1,0 +1,18 @@
+{
+  "name": "Delta 4H CHoCH Screener",
+  "short_name": "DeltaScreener",
+  "description": "Delta Exchange 4H Clean CHoCH Screener & Real-Time Alerts",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0e14",
+  "theme_color": "#0d1117",
+  "icons": [
+    {
+      "src": "/static/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

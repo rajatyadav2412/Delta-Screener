@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Delta Exchange — 4H CHoCH Screener & Historical Alerts</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+    <link rel="apple-touch-icon" href="/static/icon.svg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Delta Screener">
+    <meta name="theme-color" content="#0d1117">
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -167,6 +174,10 @@
                 <button onclick="setFilter('BEARISH_CHOCH')" id="filter-bear" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-300 hover:text-white border border-bordercolor hover:border-rose-500 transition whitespace-nowrap">
                     🔴 Bearish
                 </button>
+                <button id="btn-notifications" onclick="toggleNotifications()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-300 hover:text-white border border-bordercolor transition whitespace-nowrap flex items-center space-x-1.5" title="Enable mobile & browser push alerts">
+                    <span id="notif-icon">🔔</span>
+                    <span id="notif-text">Enable Alerts</span>
+                </button>
             </div>
 
             <!-- Search Box & Refresh Status -->
@@ -300,12 +311,209 @@
         let brokenLine = null;
         let anchorLine = null;
 
+        // Notification & Signal Tracking State
+        let knownSignalKeys = new Set();
+        let isBaselineLoaded = false;
+        let savedAlertPref = localStorage.getItem('delta_alerts_enabled');
+        let notificationsEnabled = savedAlertPref !== null 
+            ? (savedAlertPref === 'true') 
+            : (typeof Notification !== 'undefined' && Notification.permission === 'granted');
+
+        // Synthesize a crisp trading audio chime (Ascending for Bullish, Descending for Bearish)
+        function playAlertChime(direction) {
+            try {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtx) return;
+                const ctx = new AudioCtx();
+                const now = ctx.currentTime;
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                if (direction === 1) {
+                    osc.frequency.setValueAtTime(523.25, now); // C5
+                    osc.frequency.setValueAtTime(659.25, now + 0.12); // E5
+                    osc.frequency.setValueAtTime(783.99, now + 0.24); // G5
+                } else {
+                    osc.frequency.setValueAtTime(783.99, now); // G5
+                    osc.frequency.setValueAtTime(659.25, now + 0.12); // E5
+                    osc.frequency.setValueAtTime(523.25, now + 0.24); // C5
+                }
+
+                gain.gain.setValueAtTime(0.25, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
+
+                osc.start(now);
+                osc.stop(now + 0.65);
+            } catch(e) {
+                console.log("Audio alert unavailable:", e);
+            }
+        }
+
+        function triggerNewSignalAlert(sig) {
+            const isBull = sig.direction === 1;
+            const title = isBull ? `🟢 BULLISH CHoCH: ${sig.symbol}` : `🔴 BEARISH CHoCH: ${sig.symbol}`;
+            const swName = sig.broken_pivot_label || 'Origin Level';
+            const body = isBull
+                ? `LL broke 10D Low -> Broke ${swName} ($${sig.broken_wick_level.toFixed(4)}). Price: $${sig.current_price.toFixed(4)}`
+                : `HH broke 10D High -> Broke ${swName} ($${sig.broken_wick_level.toFixed(4)}). Price: $${sig.current_price.toFixed(4)}`;
+
+            // 1. Play sound chime
+            playAlertChime(sig.direction);
+
+            // 2. Vibrate phone
+            if (navigator.vibrate) {
+                try { navigator.vibrate([200, 100, 200]); } catch(e) {}
+            }
+
+            // 3. System Push Notification (works on lock screen & PWA)
+            if (notificationsEnabled && 'Notification' in window && Notification.permission === 'granted') {
+                const notifOptions = {
+                    body: body,
+                    icon: '/static/icon.svg',
+                    badge: '/static/icon.svg',
+                    tag: `signal_${sig.symbol}_${sig.candle_time}`,
+                    renotify: true,
+                    data: {
+                        symbol: sig.symbol,
+                        brokenLevel: sig.broken_wick_level,
+                        anchorLevel: sig.macro_anchor_price,
+                        signalPrice: sig.price_at_signal,
+                        signalType: sig.signal_type,
+                        candleTime: sig.candle_time
+                    }
+                };
+
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.ready.then(reg => {
+                        reg.showNotification(title, notifOptions);
+                    }).catch(() => {
+                        new Notification(title, notifOptions);
+                    });
+                } else {
+                    new Notification(title, notifOptions);
+                }
+            }
+        }
+
+        async function toggleNotifications() {
+            if (!('Notification' in window)) {
+                alert('Notifications are not supported by this browser.');
+                return;
+            }
+
+            if (Notification.permission === 'denied') {
+                alert('Notifications are blocked in your browser or device settings. Please allow notifications for this site in Settings to receive alerts.');
+                updateNotificationButtonUI();
+                return;
+            }
+
+            if (Notification.permission === 'granted') {
+                notificationsEnabled = !notificationsEnabled;
+                localStorage.setItem('delta_alerts_enabled', notificationsEnabled ? 'true' : 'false');
+                updateNotificationButtonUI();
+
+                if (notificationsEnabled) {
+                    playAlertChime(1);
+                    sendTestNotification();
+                }
+                return;
+            }
+
+            try {
+                const permission = await Notification.requestPermission();
+                if (permission === 'granted') {
+                    notificationsEnabled = true;
+                    localStorage.setItem('delta_alerts_enabled', 'true');
+                    updateNotificationButtonUI();
+                    playAlertChime(1);
+                    sendTestNotification();
+                } else {
+                    notificationsEnabled = false;
+                    localStorage.setItem('delta_alerts_enabled', 'false');
+                    updateNotificationButtonUI();
+                }
+            } catch (err) {
+                console.error("Error requesting notification permission:", err);
+            }
+        }
+
+        function sendTestNotification() {
+            const title = "🔔 Delta Screener Alerts Active!";
+            const options = {
+                body: "You will now receive instant push notifications whenever a new 4H CHoCH setup triggers on Delta Exchange.",
+                icon: '/static/icon.svg',
+                badge: '/static/icon.svg',
+                tag: 'test_notification'
+            };
+
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.ready.then(reg => {
+                    reg.showNotification(title, options);
+                }).catch(() => {
+                    new Notification(title, options);
+                });
+            } else {
+                new Notification(title, options);
+            }
+        }
+
+        function updateNotificationButtonUI() {
+            const btn = document.getElementById('btn-notifications');
+            const icon = document.getElementById('notif-icon');
+            const text = document.getElementById('notif-text');
+            if (!btn || !icon || !text) return;
+
+            if (!('Notification' in window)) {
+                btn.className = 'px-3 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-500 border border-bordercolor cursor-not-allowed whitespace-nowrap flex items-center space-x-1.5';
+                icon.innerText = '🔕';
+                text.innerText = 'Not Supported';
+                return;
+            }
+
+            if (Notification.permission === 'denied') {
+                btn.className = 'px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-950/60 text-rose-400 border border-rose-800/60 whitespace-nowrap flex items-center space-x-1.5';
+                icon.innerText = '🔕';
+                text.innerText = 'Alerts Blocked';
+            } else if (Notification.permission === 'granted' && notificationsEnabled) {
+                btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-950/70 text-emerald-400 border border-emerald-700/60 whitespace-nowrap flex items-center space-x-1.5 shadow-sm';
+                icon.innerText = '🔔';
+                text.innerText = 'Alerts Active';
+            } else {
+                btn.className = 'px-3 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-300 hover:text-white border border-bordercolor hover:border-blue-500 transition whitespace-nowrap flex items-center space-x-1.5';
+                icon.innerText = '🔔';
+                text.innerText = 'Enable Alerts';
+            }
+        }
+
         // Fetch signals and update dashboard
         async function fetchSignals() {
             try {
                 const res = await fetch(`/api/signals?type=${currentFilter}&symbol=${encodeURIComponent(searchQuery)}`);
                 const data = await res.json();
                 allSignals = data.signals || [];
+
+                // Track and detect new signals
+                if (allSignals.length > 0) {
+                    if (!isBaselineLoaded) {
+                        allSignals.forEach(sig => {
+                            const k = sig.unique_key || `${sig.symbol}|${sig.candle_time}|${sig.broken_wick_level}`;
+                            knownSignalKeys.add(k);
+                        });
+                        isBaselineLoaded = true;
+                    } else {
+                        for (const sig of allSignals) {
+                            const k = sig.unique_key || `${sig.symbol}|${sig.candle_time}|${sig.broken_wick_level}`;
+                            if (!knownSignalKeys.has(k)) {
+                                knownSignalKeys.add(k);
+                                triggerNewSignalAlert(sig);
+                            }
+                        }
+                    }
+                }
+
                 renderTable(allSignals);
             } catch (err) {
                 console.error("Failed to fetch signals:", err);
@@ -897,6 +1105,20 @@
             fetchStats();
             fetchSignals();
         }, 10000);
+
+        // Register Service Worker for Mobile PWA & Push Notifications
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').then((reg) => {
+                    console.log('ServiceWorker registered with scope:', reg.scope);
+                }).catch((err) => {
+                    console.log('ServiceWorker registration failed:', err);
+                });
+            });
+        }
+
+        // Initialize alert notification button state
+        updateNotificationButtonUI();
 
         // Initial load
         fetchStats();
