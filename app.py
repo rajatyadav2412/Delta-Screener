@@ -206,18 +206,21 @@ def trigger_scan():
         return jsonify({
             "status": "already_scanning",
             "message": "Scan already in progress.",
-            "last_scan_time": scanner_state["last_scan_time"] or database.get_stats().get("last_scan_time")
+            "last_scan_time": scanner_state["last_scan_time"] or database.get_stats().get("last_scan_time"),
+            "signals": database.get_history(limit=200),
         })
 
     # Execute concurrent scan across all Delta perpetuals (~3.5 seconds)
     run_full_scan()
     now_time = scanner_state["last_scan_time"] or database.get_stats().get("last_scan_time")
+    fresh_signals = database.get_history(limit=200)
     return jsonify({
         "status": "completed",
         "message": "Live scan completed across all Delta Exchange perpetuals.",
         "last_scan_time": now_time,
         "scanned_count": scanner_state["last_scan_count"],
         "new_alerts": scanner_state["last_new_alerts"],
+        "signals": fresh_signals,
     })
 
 

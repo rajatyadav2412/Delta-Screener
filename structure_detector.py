@@ -29,6 +29,7 @@ Market Structure & Trend:
     Then, 4H candle closes strictly above the Lower High (LH) high wick.
 """
 
+import time
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -529,17 +530,45 @@ class TradingViewPivotDetector:
         }
 
     def has_recent_signal(
-        self, ohlc: pd.DataFrame, lookback_bars: int = 2
+        self,
+        ohlc: pd.DataFrame,
+        lookback_bars: int = 2,
+        require_closed: bool = True,
+        timeframe_seconds: int = 14400,
     ) -> Optional[CHoCHAfterBOS]:
         """
-        Checks if a clean CHoCH-after-BOS formed in the last `lookback_bars` candles.
+        Checks if a clean CHoCH-after-BOS formed in the last `lookback_bars` closed candles.
+
+        Args:
+            ohlc: DataFrame with time, open, high, low, close
+            lookback_bars: Number of recent closed bars to evaluate (default 2)
+            require_closed: If True (default), strips the currently forming / unclosed candle
+                           so signals only trigger on PROPER CANDLE CLOSES.
+            timeframe_seconds: Bar length in seconds (14400 for 4H).
         """
-        result = self.analyze(ohlc)
+        if ohlc is None or ohlc.empty:
+            return None
+
+        eval_ohlc = ohlc
+        if require_closed and "time" in eval_ohlc.columns and len(eval_ohlc) > 0:
+            try:
+                last_time = eval_ohlc["time"].iloc[-1]
+                if hasattr(last_time, "timestamp"):
+                    last_epoch = last_time.timestamp()
+                else:
+                    last_epoch = pd.to_datetime(last_time).timestamp()
+                # If current time is earlier than candle open time + duration, candle is still running!
+                if time.time() < (last_epoch + timeframe_seconds):
+                    eval_ohlc = eval_ohlc.iloc[:-1].copy()
+            except Exception:
+                pass
+
+        result = self.analyze(eval_ohlc)
         if not result["signals"]:
             return None
 
         latest = result["signals"][-1]
-        if latest.choch_event.bar_index >= (len(ohlc) - lookback_bars):
+        if latest.choch_event.bar_index >= (len(eval_ohlc) - lookback_bars):
             return latest
         return None
 

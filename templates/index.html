@@ -498,23 +498,58 @@
             }
         }
 
+        // Smart merge signals to prevent loss across serverless container restarts
+        function mergeAndRenderSignals(incomingSignals) {
+            if (!incomingSignals || incomingSignals.length === 0) {
+                renderTable(allSignals);
+                return;
+            }
+
+            const map = new Map();
+            // Retain any existing signals in memory
+            for (const sig of allSignals) {
+                const k = sig.unique_key || `${sig.symbol}|${sig.candle_time}|${sig.broken_wick_level}`;
+                map.set(k, sig);
+            }
+            // Merge incoming signals
+            for (const sig of incomingSignals) {
+                const k = sig.unique_key || `${sig.symbol}|${sig.candle_time}|${sig.broken_wick_level}`;
+                map.set(k, sig);
+            }
+
+            // Sort descending by candle_time, then id
+            allSignals = Array.from(map.values()).sort((a, b) => {
+                const ta = new Date(a.candle_time).getTime() || 0;
+                const tb = new Date(b.candle_time).getTime() || 0;
+                if (tb !== ta) return tb - ta;
+                return (b.id || 0) - (a.id || 0);
+            });
+
+            // Cache in localStorage to ensure newly scanned instruments persist forever
+            try {
+                localStorage.setItem('delta_cached_signals', JSON.stringify(allSignals.slice(0, 300)));
+            } catch(e) {}
+
+            renderTable(allSignals);
+        }
+
         // Fetch signals and update dashboard
         async function fetchSignals() {
             try {
                 const res = await fetch(`/api/signals?type=${currentFilter}&symbol=${encodeURIComponent(searchQuery)}`);
                 const data = await res.json();
-                allSignals = data.signals || [];
+                const fetched = data.signals || [];
 
                 // Track and detect new signals
-                if (allSignals.length > 0) {
+                if (fetched.length > 0) {
                     if (!isBaselineLoaded) {
-                        allSignals.forEach(sig => {
+                        fetched.forEach(sig => {
                             const k = sig.unique_key || `${sig.symbol}|${sig.candle_time}|${sig.broken_wick_level}`;
                             knownSignalKeys.add(k);
                         });
                         isBaselineLoaded = true;
                     } else {
-                        for (const sig of allSignals) {
+                        for (const sig of fetched) {
                             const k = sig.unique_key || `${sig.symbol}|${sig.candle_time}|${sig.broken_wick_level}`;
                             if (!knownSignalKeys.has(k)) {
                                 knownSignalKeys.add(k);
@@ -524,7 +559,7 @@
                     }
                 }
 
-                renderTable(allSignals);
+                mergeAndRenderSignals(fetched);
             } catch (err) {
                 console.error("Failed to fetch signals:", err);
             }
@@ -657,7 +692,16 @@
             const tbody = document.getElementById('signals-tbody');
             const cardsContainer = document.getElementById('signals-cards');
 
-            if (!signals || signals.length === 0) {
+            let list = signals || allSignals || [];
+            if (currentFilter && currentFilter !== 'ALL') {
+                list = list.filter(s => s.signal_type === currentFilter);
+            }
+            if (searchQuery && searchQuery.trim() !== '') {
+                const q = searchQuery.trim().toUpperCase();
+                list = list.filter(s => (s.symbol || '').toUpperCase().includes(q));
+            }
+
+            if (!list || list.length === 0) {
                 if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center text-gray-500 mono">No setups matching your filter.</td></tr>`;
                 if (cardsContainer) cardsContainer.innerHTML = `<div class="bg-cardbg border border-bordercolor rounded-xl p-8 text-center text-gray-500 mono text-xs">No setups matching your filter.</div>`;
                 return;
@@ -666,7 +710,7 @@
             let tableHtml = '';
             let cardsHtml = '';
 
-            for (const sig of signals) {
+            for (const sig of list) {
                 const isBull = sig.direction === 1;
                 const typePill = isBull 
                     ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">🟢 Bullish CHoCH</span>`
@@ -777,11 +821,13 @@
                 ? 'px-3.5 py-1.5 rounded-lg text-xs font-medium bg-rose-600 text-white transition'
                 : 'px-3.5 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-300 hover:text-white border border-bordercolor transition';
 
+            renderTable(allSignals);
             fetchSignals();
         }
 
         function handleSearch() {
             searchQuery = document.getElementById('search-input').value;
+            renderTable(allSignals);
             fetchSignals();
         }
 
@@ -808,6 +854,11 @@
 
                 if (data.last_scan_time && lastLabel) {
                     lastLabel.innerText = data.last_scan_time;
+                }
+
+                // If scan returned fresh signals, immediately merge and render them
+                if (data.signals && data.signals.length > 0) {
+                    mergeAndRenderSignals(data.signals);
                 }
 
                 await fetchStats();
@@ -1332,6 +1383,23 @@
 
         // Initialize alert notification button state
         updateNotificationButtonUI();
+
+        // Restore cached signals from localStorage immediately on load
+        try {
+            const cached = localStorage.getItem('delta_cached_signals');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    allSignals = parsed;
+                    allSignals.forEach(sig => {
+                        const k = sig.unique_key || `${sig.symbol}|${sig.candle_time}|${sig.broken_wick_level}`;
+                        knownSignalKeys.add(k);
+                    });
+                    isBaselineLoaded = true;
+                    renderTable(allSignals);
+                }
+            }
+        } catch(e) {}
 
         // Initial load
         fetchStats();
