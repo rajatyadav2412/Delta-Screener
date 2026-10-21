@@ -612,8 +612,58 @@
         }
 
         // ─────────────────────────────────────────────────────────────
-        // REAL-TIME LIVE IST CLOCK & 4H CANDLE CLOSE COUNTDOWN (1-SEC TICK)
+        // REAL-TIME LIVE IST CLOCK & 4H CANDLE CLOSE ENGINE (AUTO-UPDATES)
         // ─────────────────────────────────────────────────────────────
+        function getNext4HCandleCloseDate() {
+            const now = new Date();
+            const curHour = now.getUTCHours();
+            const nextHour = (Math.floor(curHour / 4) + 1) * 4;
+            const target = new Date(now.getTime());
+            target.setUTCMinutes(0, 0, 0);
+            target.setUTCHours(nextHour);
+            return target;
+        }
+
+        function getMostRecentClosed4HCandleKey() {
+            const now = new Date();
+            const curHour = now.getUTCHours();
+            const closedHour = Math.floor(curHour / 4) * 4;
+            const target = new Date(now.getTime());
+            target.setUTCMinutes(0, 0, 0);
+            target.setUTCHours(closedHour);
+            return target.toISOString(); // e.g. "2026-10-21T08:00:00.000Z"
+        }
+
+        let isAutoScanningOnClose = false;
+
+        async function checkAndAutoScanOnCandleClose() {
+            if (isAutoScanningOnClose) return;
+
+            const now = new Date();
+            const mostRecentCloseKey = getMostRecentClosed4HCandleKey();
+            const lastScannedKey = localStorage.getItem('delta_last_scanned_close_key');
+
+            // If a 4H candle has closed that we haven't scanned yet
+            if (lastScannedKey !== mostRecentCloseKey) {
+                const closedDate = new Date(mostRecentCloseKey);
+                const secondsSinceClose = Math.floor((now.getTime() - closedDate.getTime()) / 1000);
+
+                // Wait at least 5 seconds after candle close so exchange finalized the bar
+                if (secondsSinceClose >= 5) {
+                    isAutoScanningOnClose = true;
+                    try {
+                        localStorage.setItem('delta_last_scanned_close_key', mostRecentCloseKey);
+                        console.log(`[AUTO-SCAN] 4H candle closed at ${closedDate.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}. Auto-updating instruments...`);
+                        await triggerLiveScan();
+                    } catch (e) {
+                        console.error("[AUTO-SCAN] Auto scan failed:", e);
+                    } finally {
+                        isAutoScanningOnClose = false;
+                    }
+                }
+            }
+        }
+
         function updateLiveClocks() {
             const now = new Date();
 
@@ -630,12 +680,7 @@
             }
 
             // 2. Next 4H Candle Close (05:30 AM, 09:30 AM, 01:30 PM, 05:30 PM, 09:30 PM, 01:30 AM IST)
-            const curHour = now.getUTCHours();
-            const nextHour = (Math.floor(curHour / 4) + 1) * 4;
-            const targetClose = new Date(now.getTime());
-            targetClose.setUTCMinutes(0, 0, 0);
-            targetClose.setUTCHours(nextHour);
-
+            const targetClose = getNext4HCandleCloseDate();
             const nextCloseFormatted = targetClose.toLocaleTimeString('en-IN', {
                 timeZone: 'Asia/Kolkata',
                 hour12: true,
@@ -655,15 +700,8 @@
                 countdownEl.innerText = `${nextCloseFormatted} (in ${countdownStr})`;
             }
 
-            // Candle just closed (within 3 seconds) -> trigger automatic live scan
-            if (totalSec <= 3 && !hasAutoScannedForThisClose) {
-                hasAutoScannedForThisClose = true;
-                setTimeout(() => {
-                    triggerLiveScan();
-                }, 4000); // 4-second buffer so Delta Exchange has published final 4H candle bar
-            } else if (totalSec > 60) {
-                hasAutoScannedForThisClose = false;
-            }
+            // Check and auto-scan on 4H candle close
+            checkAndAutoScanOnCandleClose();
         }
 
         function formatIST(dateStr) {
@@ -1364,6 +1402,18 @@
         setInterval(updateLiveClocks, 1000);
         updateLiveClocks();
 
+        // Re-check and auto-update when trader unlocks phone or switches back to tab
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                checkAndAutoScanOnCandleClose();
+                fetchStats();
+                fetchSignals();
+            }
+        });
+        window.addEventListener('focus', () => {
+            checkAndAutoScanOnCandleClose();
+        });
+
         // Periodic polling (every 10 seconds for signals & stats)
         setInterval(() => {
             fetchStats();
@@ -1404,6 +1454,7 @@
         // Initial load
         fetchStats();
         fetchSignals();
+        checkAndAutoScanOnCandleClose();
     </script>
 </body>
 </html>

@@ -22,6 +22,7 @@ import argparse
 import subprocess
 import sys
 import os
+import concurrent.futures
 from datetime import datetime, timezone, timedelta
 
 from colorama import init, Fore, Style
@@ -202,46 +203,33 @@ def scan_instruments(
     instruments = instruments[:max_instruments]
     print(f"  Scanning {Fore.WHITE}{len(instruments)}{Style.RESET_ALL} perpetual contracts on {timeframe.upper()}...")
 
-    # Step 2: Analyze each instrument
-    print(f"\n{Fore.CYAN}[2/3] Analyzing structure (length=3) with 10-day High/Low rule...{Style.RESET_ALL}")
-    alerts = []
-    scanned = 0
-    errors = 0
+    # Step 2: Analyze each instrument concurrently
+    print(f"\n{Fore.CYAN}[2/3] Analyzing structure (length=3) with 10-day High/Low rule (concurrent)...{Style.RESET_ALL}")
 
-    for inst in instruments:
+    def scan_single(inst):
         symbol = inst.get("symbol", "UNKNOWN")
-        scanned += 1
-
-        sys.stdout.write(f"\r  [{scanned}/{len(instruments)}] Checking {symbol:<15} ")
-        sys.stdout.flush()
-
         try:
             ohlc = client.fetch_candles_paginated(
                 symbol=symbol,
                 resolution=timeframe,
-                num_candles=500,
+                num_candles=150,
             )
+            if ohlc.empty or len(ohlc) < 60:
+                return None
 
-            if ohlc.empty or len(ohlc) < 70:
-                continue
-
-            signal = detector.has_recent_signal(ohlc, lookback_bars=lookback_bars)
-
+            signal = detector.has_recent_signal(ohlc, lookback_bars=lookback_bars, require_closed=True)
             if signal is not None:
                 signal.symbol = symbol
                 current_price = float(ohlc["close"].iloc[-1])
-                alerts.append((symbol, signal, current_price))
-
-            time.sleep(0.12)
-
+                return (symbol, signal, current_price)
+            return None
         except Exception:
-            errors += 1
-            continue
+            return None
 
-    sys.stdout.write("\r" + " " * 80 + "\r")
-    print(f"  Completed scan: {Fore.WHITE}{scanned}{Style.RESET_ALL} scanned | "
-          f"{Fore.YELLOW}{errors}{Style.RESET_ALL} errors")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=35) as executor:
+        alerts = [r for r in executor.map(scan_single, instruments) if r is not None]
 
+    print(f"  Completed scan: {Fore.WHITE}{len(instruments)}{Style.RESET_ALL} scanned across 35 workers")
     return alerts
 
 

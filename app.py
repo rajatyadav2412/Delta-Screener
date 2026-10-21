@@ -50,6 +50,7 @@ detector = MarketStructureDetector(
 scanner_state = {
     "is_scanning": False,
     "last_scan_time": None,
+    "last_scan_utc": None,
     "last_scan_count": 0,
     "last_new_alerts": 0,
     "next_close_time": None,
@@ -70,6 +71,26 @@ def get_seconds_until_next_4h_close() -> tuple[int, datetime]:
     target_time = next_close + timedelta(seconds=15)
     seconds_left = max(1, int((target_time - now_utc).total_seconds()))
     return seconds_left, next_close.astimezone(IST)
+
+
+def check_and_auto_scan():
+    """
+    Checks if a 4H candle has closed since the last scan.
+    If so, executes run_full_scan() so all clients receive updated instruments automatically.
+    """
+    global scanner_state
+    if scanner_state["is_scanning"]:
+        return
+
+    now_utc = datetime.now(timezone.utc)
+    running_start_hour = (now_utc.hour // 4) * 4
+    last_closed_candle_time = now_utc.replace(hour=running_start_hour, minute=0, second=0, microsecond=0)
+
+    # 10-second buffer after close to let exchange finalize candles
+    if (now_utc - last_closed_candle_time).total_seconds() >= 10:
+        last_scan_utc = scanner_state.get("last_scan_utc")
+        if last_scan_utc is None or last_scan_utc < last_closed_candle_time:
+            run_full_scan()
 
 
 def run_full_scan():
@@ -133,6 +154,7 @@ def run_full_scan():
 
         now_ist = datetime.now(IST).strftime("%d %b, %I:%M:%S %p IST")
         scanner_state["last_scan_time"] = now_ist
+        scanner_state["last_scan_utc"] = datetime.now(timezone.utc)
         scanner_state["last_scan_count"] = scanned_count
         scanner_state["last_new_alerts"] = new_count
         database.set_metadata("last_scan_time", now_ist)
@@ -173,6 +195,7 @@ def manifest():
 
 @app.route("/api/signals")
 def get_signals():
+    check_and_auto_scan()
     symbol = request.args.get("symbol", "").strip()
     sig_type = request.args.get("type", "ALL").strip()
     limit = int(request.args.get("limit", 200))
@@ -189,6 +212,7 @@ def get_signals():
 
 @app.route("/api/stats")
 def get_stats():
+    check_and_auto_scan()
     stats = database.get_stats()
     secs_left, next_close = get_seconds_until_next_4h_close()
     return jsonify({
