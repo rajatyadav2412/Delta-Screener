@@ -244,6 +244,7 @@
                         </tr>
                         <!-- Confluence 1D+1H Table Header -->
                         <tr id="thead-row-confluence" class="hidden bg-darkbg/90 border-b border-amber-600/30 text-[11px] font-semibold text-amber-300 uppercase tracking-wider mono">
+                            <th class="py-3 px-4">Date & Time (IST)</th>
                             <th class="py-3 px-4">Instrument</th>
                             <th class="py-3 px-4">Timeframe Alignment</th>
                             <th class="py-3 px-4">Daily CHoCH Level</th>
@@ -980,7 +981,7 @@
             const cardsContainer = document.getElementById('signals-cards');
 
             if (is1D1HMatchActive && (!confluenceMatches || confluenceMatches.length === 0)) {
-                if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center text-amber-400 mono animate-pulse">⚡ Scanning 1D + 1H confluence across Delta Exchange contracts...</td></tr>`;
+                if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center text-amber-400 mono animate-pulse">⚡ Scanning 1D + 1H confluence across Delta Exchange contracts...</td></tr>`;
                 if (cardsContainer) cardsContainer.innerHTML = `<div class="bg-cardbg border border-amber-500/30 rounded-xl p-8 text-center text-amber-400 mono text-xs animate-pulse">⚡ Scanning 1D + 1H confluence across Delta Exchange contracts...</div>`;
             }
 
@@ -1033,7 +1034,7 @@
             }
 
             if (!list || list.length === 0) {
-                if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center text-gray-500 mono">No 1D+1H matches found for current filter.</td></tr>`;
+                if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center text-gray-500 mono">No 1D+1H matches found for current filter.</td></tr>`;
                 if (cardsContainer) cardsContainer.innerHTML = `<div class="bg-cardbg border border-bordercolor rounded-xl p-8 text-center text-gray-500 mono text-xs">No 1D+1H matches found for current filter.</div>`;
                 return;
             }
@@ -1060,6 +1061,10 @@
                 // Desktop Table Row
                 tableHtml += `
                     <tr class="hover:bg-darkbg/50 transition">
+                        <td class="py-3 px-4 mono text-gray-300 whitespace-nowrap">
+                            <div class="text-white font-medium">${formatIST(m.hourly_time || m.daily_time)}</div>
+                            <div class="text-[10px] text-gray-400">1D: ${formatIST(m.daily_time).split(',')[0]}</div>
+                        </td>
                         <td class="py-3 px-4 font-bold text-white mono">
                             <span class="hover:text-blue-400 cursor-pointer" onclick="${openModalCall}">${m.symbol}</span>
                         </td>
@@ -1099,6 +1104,14 @@
                         </div>
 
                         <div class="grid grid-cols-2 gap-2 text-xs bg-darkbg/70 p-2.5 rounded-lg border border-bordercolor/60 mono">
+                            <div>
+                                <div class="text-[10px] text-gray-500 uppercase tracking-wider">Trigger Time (IST)</div>
+                                <div class="text-gray-200 font-semibold text-[11px] mt-0.5">${formatIST(m.hourly_time || m.daily_time)}</div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] text-gray-500 uppercase tracking-wider">1D CHoCH Date</div>
+                                <div class="text-gray-300 font-medium text-[11px] mt-0.5">${formatIST(m.daily_time).split(',')[0]}</div>
+                            </div>
                             <div>
                                 <div class="text-[10px] text-gray-500 uppercase tracking-wider">1D CHoCH Level</div>
                                 <div class="text-gray-200 font-semibold text-[11px] mt-0.5">$${dailyLvlStr} (${m.daily_broken_pivot || '1D'})</div>
