@@ -274,7 +274,7 @@
                     <div class="flex items-center space-x-2 sm:space-x-3">
                         <span id="modal-symbol" class="text-lg sm:text-xl font-bold text-white mono">BTCUSD</span>
                         <span id="modal-badge" class="px-2.5 py-0.5 rounded text-[11px] sm:text-xs font-semibold">SIGNAL</span>
-                        <span class="text-xs text-gray-400 mono hidden md:inline">4H Timeframe (IST)</span>
+                        <span id="modal-timeframe-label" class="text-xs text-gray-400 mono hidden md:inline">4H Timeframe (IST)</span>
                     </div>
 
                     <div class="flex items-center space-x-2">
@@ -287,14 +287,27 @@
                     </div>
                 </div>
 
-                <!-- Bottom Row: View Switcher Tabs (Full Width on Mobile) -->
-                <div class="flex items-center bg-darkbg p-1 rounded-xl border border-bordercolor space-x-1 w-full sm:w-auto self-start sm:self-auto">
-                    <button id="tab-signals" onclick="switchChartTab('signals')" class="flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white transition flex items-center space-x-1.5 shadow-sm">
-                        <span>⚡ CHoCH Setup & Markers</span>
-                    </button>
-                    <button id="tab-tv" onclick="switchChartTab('tv')" class="flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white transition flex items-center space-x-1.5">
-                        <span>📈 TradingView Superchart</span>
-                    </button>
+                <!-- Bottom Row: View Switcher Tabs & Timeframe Switcher (Responsive) -->
+                <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+                    <div class="flex items-center bg-darkbg p-1 rounded-xl border border-bordercolor space-x-1 w-full sm:w-auto">
+                        <button id="tab-signals" onclick="switchChartTab('signals')" class="flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white transition flex items-center space-x-1.5 shadow-sm">
+                            <span>⚡ CHoCH Setup & Markers</span>
+                        </button>
+                        <button id="tab-tv" onclick="switchChartTab('tv')" class="flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white transition flex items-center space-x-1.5">
+                            <span>📈 TradingView Superchart</span>
+                        </button>
+                    </div>
+
+                    <!-- Timeframe Toggle Buttons (4H / 1D) -->
+                    <div class="flex items-center bg-[#161b22] p-1 rounded-xl border border-bordercolor space-x-1 self-start sm:self-auto">
+                        <span class="text-[10px] sm:text-[11px] text-gray-400 px-2 font-mono uppercase tracking-wider">Timeframe:</span>
+                        <button id="btn-tf-4h" onclick="switchChartTimeframe('4h')" class="px-3 py-1 rounded-lg text-xs font-bold bg-blue-600 text-white shadow-sm transition mono">
+                            4H
+                        </button>
+                        <button id="btn-tf-1d" onclick="switchChartTimeframe('1d')" class="px-3 py-1 rounded-lg text-xs font-medium text-gray-400 hover:text-white transition mono">
+                            1D (Daily)
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -1204,6 +1217,7 @@
         let loadedTvSymbol = '';
         let currentTvFeed = 'DELTAIN'; // 'DELTAIN' or 'BINANCE'
         let currentActiveTab = 'signals';
+        let currentChartTimeframe = '4h'; // '4h' or '1d'
         let modalSignalData = null;
 
         function getTvSymbol(symbol, feed) {
@@ -1215,13 +1229,16 @@
             }
         }
 
-        function renderTradingViewChart(symbol, feed) {
+        function renderTradingViewChart(symbol, feed, timeframe = currentChartTimeframe) {
             const container = document.getElementById('tv-chart-container');
             container.innerHTML = ''; // reset previous iframe
 
             const tvSymbol = getTvSymbol(symbol, feed);
-            document.getElementById('modal-tv-symbol-label').innerText = `TradingView: ${tvSymbol}`;
-            document.getElementById('modal-tv-external').href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}`;
+            const tvInterval = (timeframe || currentChartTimeframe) === '1d' ? 'D' : '240';
+            const tfLabel = (timeframe || currentChartTimeframe) === '1d' ? '1D' : '4H';
+
+            document.getElementById('modal-tv-symbol-label').innerText = `TradingView: ${tvSymbol} (${tfLabel})`;
+            document.getElementById('modal-tv-external').href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}&interval=${tvInterval}`;
 
             // Update feed buttons styling
             const btnDelta = document.getElementById('feed-deltain');
@@ -1240,7 +1257,7 @@
                         "id": "delta_tradingview_widget",
                         "autosize": true,
                         "symbol": tvSymbol,
-                        "interval": "240", // 4 Hours (matching screener)
+                        "interval": tvInterval, // '240' for 4H, 'D' for Daily
                         "timezone": "Asia/Kolkata", // IST (GMT+5:30)
                         "theme": "dark",
                         "style": "1", // Candlesticks
@@ -1259,21 +1276,21 @@
                             "volume_force_overlay"
                         ]
                     });
-                    loadedTvSymbol = tvSymbol;
+                    loadedTvSymbol = `${tvSymbol}_${tvInterval}`;
                 } else {
                     container.innerHTML = '<div class="flex items-center justify-center h-full text-gray-400 text-xs mono">TradingView library loading...</div>';
                     let tvRetries = 0;
-                    const tvInterval = setInterval(() => {
+                    const tvIntervalTimer = setInterval(() => {
                         tvRetries++;
                         if (typeof TradingView !== 'undefined' && TradingView.widget) {
-                            clearInterval(tvInterval);
-                            renderTradingViewChart(symbol, feed);
+                            clearInterval(tvIntervalTimer);
+                            renderTradingViewChart(symbol, feed, timeframe);
                         } else if (tvRetries > 10) {
-                            clearInterval(tvInterval);
+                            clearInterval(tvIntervalTimer);
                             container.innerHTML = `
                                 <div class="flex flex-col items-center justify-center h-full text-gray-400 text-xs mono gap-2 p-4 text-center">
                                     <div>TradingView library is taking longer than expected.</div>
-                                    <a href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}" target="_blank" class="text-blue-400 underline font-medium">
+                                    <a href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}&interval=${tvInterval}" target="_blank" class="text-blue-400 underline font-medium">
                                         Open full chart on TradingView.com ↗
                                     </a>
                                 </div>
@@ -1290,7 +1307,64 @@
         function changeTvFeed(feed) {
             currentTvFeed = feed;
             if (currentModalSymbol) {
-                renderTradingViewChart(currentModalSymbol, currentTvFeed);
+                renderTradingViewChart(currentModalSymbol, currentTvFeed, currentChartTimeframe);
+            }
+        }
+
+        async function switchChartTimeframe(tf) {
+            if (!tf) return;
+            currentChartTimeframe = tf.toLowerCase();
+
+            // Update button styles
+            const btn4h = document.getElementById('btn-tf-4h');
+            const btn1d = document.getElementById('btn-tf-1d');
+            const tfLabel = document.getElementById('modal-timeframe-label');
+            const legend = document.getElementById('modal-footer-legend');
+
+            if (currentChartTimeframe === '1d') {
+                if (btn1d) btn1d.className = 'px-3 py-1 rounded-lg text-xs font-bold bg-blue-600 text-white shadow-sm transition mono';
+                if (btn4h) btn4h.className = 'px-3 py-1 rounded-lg text-xs font-medium text-gray-400 hover:text-white transition mono';
+                if (tfLabel) tfLabel.innerText = '1D Daily Timeframe (IST)';
+                if (legend && currentActiveTab === 'tv') legend.innerText = 'TradingView Advanced Charts — Daily (1D) timeframe in IST.';
+            } else {
+                if (btn4h) btn4h.className = 'px-3 py-1 rounded-lg text-xs font-bold bg-blue-600 text-white shadow-sm transition mono';
+                if (btn1d) btn1d.className = 'px-3 py-1 rounded-lg text-xs font-medium text-gray-400 hover:text-white transition mono';
+                if (tfLabel) tfLabel.innerText = '4H Timeframe (IST)';
+                if (legend && currentActiveTab === 'tv') legend.innerText = 'TradingView Advanced Charts — 4H timeframe in IST.';
+            }
+
+            if (!currentModalSymbol) return;
+
+            // If TradingView tab is active, re-render TV chart with new interval
+            if (currentActiveTab === 'tv') {
+                renderTradingViewChart(currentModalSymbol, currentTvFeed, currentChartTimeframe);
+                return;
+            }
+
+            // Otherwise, fetch and render candles in Lightweight Charts
+            const loader = document.getElementById('chart-loader');
+            const loaderText = document.getElementById('chart-loader-text');
+            if (loader) loader.classList.remove('hidden');
+            if (loaderText) loaderText.innerText = `Loading ${currentChartTimeframe.toUpperCase()} chart data...`;
+
+            try {
+                const candles = await fetchCandlesWithFallback(currentModalSymbol, currentChartTimeframe);
+                if (modalSignalData) {
+                    modalSignalData.candles = candles || [];
+                }
+                if (loader) loader.classList.add('hidden');
+                if (modalSignalData) {
+                    renderSignalChart(
+                        modalSignalData.candles,
+                        modalSignalData.brokenLevel,
+                        modalSignalData.anchorLevel,
+                        modalSignalData.signalType,
+                        modalSignalData.candleTime
+                    );
+                }
+            } catch (err) {
+                console.error("Failed to load candles for timeframe:", err);
+                if (loader) loader.classList.add('hidden');
             }
         }
 
@@ -1309,12 +1383,13 @@
                 tvContainer.classList.remove('hidden');
                 signalsContainer.classList.add('hidden');
                 tvPicker.classList.remove('hidden');
-                legend.innerText = 'TradingView Advanced Charts — 4H timeframe in IST.';
+                legend.innerText = `TradingView Advanced Charts — ${currentChartTimeframe === '1d' ? 'Daily (1D)' : '4H'} timeframe in IST.`;
 
                 if (currentModalSymbol) {
-                    const neededTvSymbol = getTvSymbol(currentModalSymbol, currentTvFeed);
+                    const tvInterval = currentChartTimeframe === '1d' ? 'D' : '240';
+                    const neededTvSymbol = `${getTvSymbol(currentModalSymbol, currentTvFeed)}_${tvInterval}`;
                     if (loadedTvSymbol !== neededTvSymbol) {
-                        renderTradingViewChart(currentModalSymbol, currentTvFeed);
+                        renderTradingViewChart(currentModalSymbol, currentTvFeed, currentChartTimeframe);
                     }
                 }
             } else {
@@ -1340,20 +1415,23 @@
         // In-memory client candle cache to make reopen instantaneous (0ms)
         const clientCandleCache = new Map();
 
-        // Ultra-fast multi-source candle fetcher for instant chart loading
-        async function fetchCandlesWithFallback(symbol) {
+        // Ultra-fast multi-source candle fetcher for instant chart loading (4H or 1D Daily)
+        async function fetchCandlesWithFallback(symbol, resolution = '4h') {
             symbol = symbol.toUpperCase();
+            resolution = (resolution || '4h').toLowerCase();
             const now = Math.floor(Date.now() / 1000);
+            const cacheKey = `${symbol}_${resolution}`;
 
             // 1. Check in-memory cache (fresh for 120s)
-            if (clientCandleCache.has(symbol)) {
-                const cached = clientCandleCache.get(symbol);
+            if (clientCandleCache.has(cacheKey)) {
+                const cached = clientCandleCache.get(cacheKey);
                 if (now - cached.timestamp < 120 && cached.candles && cached.candles.length > 0) {
                     return cached.candles;
                 }
             }
 
-            const startTime = now - (300 * 14400); // 300 4H candles (50 days)
+            const candleDuration = resolution === '1d' ? 86400 : 14400;
+            const startTime = now - (300 * candleDuration);
 
             const normalizeCandles = (arr) => {
                 if (!Array.isArray(arr) || arr.length === 0) return [];
@@ -1369,19 +1447,17 @@
             };
 
             // Strategy 1: Direct Delta Exchange India REST API
-            // Delta API supports CORS (*) and responds directly to mobile browsers in ~200ms
-            // bypassing any US serverless cold-start delays.
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 2800);
-                const directUrl = `https://api.india.delta.exchange/v2/history/candles?symbol=${symbol}&resolution=4h&start=${startTime}&end=${now}`;
+                const directUrl = `https://api.india.delta.exchange/v2/history/candles?symbol=${symbol}&resolution=${resolution}&start=${startTime}&end=${now}`;
                 const res = await fetch(directUrl, { signal: controller.signal });
                 clearTimeout(timeoutId);
                 if (res.ok) {
                     const data = await res.json();
                     const candles = normalizeCandles(data.result);
                     if (candles.length > 0) {
-                        clientCandleCache.set(symbol, { timestamp: now, candles });
+                        clientCandleCache.set(cacheKey, { timestamp: now, candles });
                         return candles;
                     }
                 }
@@ -1393,13 +1469,13 @@
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 3500);
-                const res = await fetch(`/api/candles/${symbol}`, { signal: controller.signal });
+                const res = await fetch(`/api/candles/${symbol}?resolution=${resolution}`, { signal: controller.signal });
                 clearTimeout(timeoutId);
                 if (res.ok) {
                     const data = await res.json();
                     const candles = normalizeCandles(data.candles);
                     if (candles.length > 0) {
-                        clientCandleCache.set(symbol, { timestamp: now, candles });
+                        clientCandleCache.set(cacheKey, { timestamp: now, candles });
                         return candles;
                     }
                 }
@@ -1411,14 +1487,14 @@
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 2800);
-                const globalUrl = `https://api.delta.exchange/v2/history/candles?symbol=${symbol}&resolution=4h&start=${startTime}&end=${now}`;
+                const globalUrl = `https://api.delta.exchange/v2/history/candles?symbol=${symbol}&resolution=${resolution}&start=${startTime}&end=${now}`;
                 const res = await fetch(globalUrl, { signal: controller.signal });
                 clearTimeout(timeoutId);
                 if (res.ok) {
                     const data = await res.json();
                     const candles = normalizeCandles(data.result);
                     if (candles.length > 0) {
-                        clientCandleCache.set(symbol, { timestamp: now, candles });
+                        clientCandleCache.set(cacheKey, { timestamp: now, candles });
                         return candles;
                     }
                 }
@@ -1435,6 +1511,16 @@
             const loaderText = document.getElementById('chart-loader-text');
             modal.classList.remove('hidden');
             loader.classList.remove('hidden');
+
+            // Default to 4H timeframe when opening modal
+            currentChartTimeframe = '4h';
+            const btn4h = document.getElementById('btn-tf-4h');
+            const btn1d = document.getElementById('btn-tf-1d');
+            if (btn4h) btn4h.className = 'px-3 py-1 rounded-lg text-xs font-bold bg-blue-600 text-white shadow-sm transition mono';
+            if (btn1d) btn1d.className = 'px-3 py-1 rounded-lg text-xs font-medium text-gray-400 hover:text-white transition mono';
+            const tfLabel = document.getElementById('modal-timeframe-label');
+            if (tfLabel) tfLabel.innerText = '4H Timeframe (IST)';
+
             if (loaderText) loaderText.innerText = 'Loading 4H chart data...';
 
             currentModalSymbol = symbol;
@@ -1449,8 +1535,8 @@
 
             // Set TradingView labels and external link upfront
             const tvSymbol = getTvSymbol(symbol, currentTvFeed);
-            document.getElementById('modal-tv-symbol-label').innerText = `TradingView: ${tvSymbol}`;
-            document.getElementById('modal-tv-external').href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}`;
+            document.getElementById('modal-tv-symbol-label').innerText = `TradingView: ${tvSymbol} (4H)`;
+            document.getElementById('modal-tv-external').href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}&interval=240`;
 
             const badge = document.getElementById('modal-badge');
             if (signalType === 'BULLISH_CHOCH') {
@@ -1465,7 +1551,7 @@
             switchChartTab('signals');
 
             try {
-                const candles = await fetchCandlesWithFallback(symbol);
+                const candles = await fetchCandlesWithFallback(symbol, currentChartTimeframe);
                 modalSignalData.candles = candles || [];
                 loader.classList.add('hidden');
                 renderSignalChart(
@@ -1506,7 +1592,7 @@
             if (!candles || candles.length === 0) {
                 container.innerHTML = `
                     <div class="flex flex-col items-center justify-center h-full text-gray-400 text-xs mono gap-3 p-4 text-center">
-                        <div class="text-sm font-semibold text-gray-300">No 4H candle data returned</div>
+                        <div class="text-sm font-semibold text-gray-300">No ${currentChartTimeframe.toUpperCase()} candle data returned</div>
                         <div class="text-gray-500 max-w-sm">Unable to load historical candles for this pair. You can view the live chart in the TradingView tab.</div>
                         <button onclick="switchChartTab('tv')" class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium transition text-xs flex items-center space-x-1.5 shadow-sm">
                             <span>📈 View in TradingView Tab</span>
@@ -1593,9 +1679,10 @@
 
                 if (matchedIndex === -1) {
                     let minDiff = Infinity;
+                    const maxAllowedDiff = currentChartTimeframe === '1d' ? 86400 : 14400;
                     for (let i = 0; i < candles.length; i++) {
                         const diff = Math.abs(candles[i].time - targetEpoch);
-                        if (diff < minDiff && diff <= 14400) {
+                        if (diff < minDiff && diff <= maxAllowedDiff) {
                             minDiff = diff;
                             matchedIndex = i;
                         }

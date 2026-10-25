@@ -379,20 +379,25 @@ _candle_cache = {}
 
 @app.route("/api/candles/<symbol>")
 def get_candles(symbol):
-    """Returns 4H OHLC candle data for the interactive chart modal with in-memory caching."""
+    """Returns 4H or 1D OHLC candle data for the interactive chart modal with in-memory caching."""
     sym = symbol.upper()
+    resolution = request.args.get("resolution", "4h").lower()
+    if resolution not in ["4h", "1d", "1h"]:
+        resolution = "4h"
+
+    cache_key = f"{sym}_{resolution}"
     now_ts = time.time()
 
     # Serve from cache if fresh (valid for 90 seconds)
-    if sym in _candle_cache:
-        exp, cached_data = _candle_cache[sym]
+    if cache_key in _candle_cache:
+        exp, cached_data = _candle_cache[cache_key]
         if now_ts < exp:
             return jsonify(cached_data)
 
     try:
-        ohlc = client.fetch_candles_paginated(sym, resolution="4h", num_candles=300)
+        ohlc = client.fetch_candles_paginated(sym, resolution=resolution, num_candles=300)
         if ohlc.empty:
-            return jsonify({"symbol": sym, "candles": []})
+            return jsonify({"symbol": sym, "resolution": resolution, "candles": []})
 
         candles = []
         for row in ohlc.to_dict(orient="records"):
@@ -407,8 +412,8 @@ def get_candles(symbol):
                 "volume": float(row.get("volume", 0)),
             })
 
-        resp_data = {"symbol": sym, "candles": candles}
-        _candle_cache[sym] = (now_ts + 90, resp_data)
+        resp_data = {"symbol": sym, "resolution": resolution, "candles": candles}
+        _candle_cache[cache_key] = (now_ts + 90, resp_data)
         return jsonify(resp_data)
     except Exception as e:
         return jsonify({"error": str(e), "candles": []}), 500
