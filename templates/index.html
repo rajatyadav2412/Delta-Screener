@@ -181,9 +181,9 @@
                 <button onclick="setFilter('BEARISH_CHOCH')" id="filter-bear" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-300 hover:text-white border border-bordercolor hover:border-rose-500 transition whitespace-nowrap">
                     🔴 Bearish
                 </button>
-                <button onclick="toggle1D1HMatch()" id="btn-1d1h-match" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-darkbg text-amber-400 hover:text-white border border-amber-500/50 hover:border-amber-400 transition whitespace-nowrap flex items-center space-x-1.5 shadow-sm" title="Filter instruments having matching 1D + 1H CHoCH with price confirmed below/above 1D level">
+                <button onclick="toggle1D1HMatch()" id="btn-1d1h-match" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-darkbg text-amber-400 hover:text-white border border-amber-500/50 hover:border-amber-400 transition whitespace-nowrap flex items-center space-x-1.5 shadow-sm" title="Filter instruments having matching 4H + 1D CHoCH with price confirmed below/above Daily level">
                     <span id="match-icon">⚡</span>
-                    <span>1D+1H Match</span>
+                    <span>4H+1D Match</span>
                     <span id="badge-match-count" class="hidden text-[10px] px-1.5 py-0.2 bg-amber-500/20 text-amber-300 rounded border border-amber-500/40 font-mono">0</span>
                 </button>
                 <button id="btn-notifications" onclick="toggleNotifications()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-300 hover:text-white border border-bordercolor transition whitespace-nowrap flex items-center space-x-1.5" title="Enable mobile & browser push alerts">
@@ -206,13 +206,13 @@
             </div>
         </div>
 
-        <!-- Confluence Active Info Banner (Visible only when 1D+1H Match is ON) -->
+        <!-- Confluence Active Info Banner (Visible only when 4H+1D Match is ON) -->
         <div id="confluence-banner" class="hidden bg-amber-950/40 border border-amber-600/40 rounded-xl p-3 sm:p-3.5 flex items-center justify-between gap-3 text-xs">
             <div class="flex items-center space-x-2 text-amber-200">
                 <span class="text-base sm:text-lg">⚡</span>
                 <div>
-                    <span class="font-bold text-amber-300">1D + 1H Confluence Mode:</span>
-                    <span class="text-gray-300 ml-1">Showing instruments where 1D and 1H CHoCH direction match, and current price confirms traded below Daily CHoCH (Bearish) or above Daily CHoCH (Bullish).</span>
+                    <span class="font-bold text-amber-300">4H + 1D Confluence Mode:</span>
+                    <span class="text-gray-300 ml-1">Showing instruments where 4H and Daily (1D) CHoCH direction match, and current price confirms traded below Daily CHoCH (Bearish) or above Daily CHoCH (Bullish).</span>
                 </div>
             </div>
             <button onclick="toggle1D1HMatch()" class="text-xs text-amber-400 hover:text-amber-200 underline whitespace-nowrap mono font-medium">Turn Off ✕</button>
@@ -242,13 +242,13 @@
                             <th class="py-3 px-4">Prior BOS</th>
                             <th class="py-3 px-4 text-center">Chart</th>
                         </tr>
-                        <!-- Confluence 1D+1H Table Header -->
+                        <!-- Confluence 4H+1D Table Header -->
                         <tr id="thead-row-confluence" class="hidden bg-darkbg/90 border-b border-amber-600/30 text-[11px] font-semibold text-amber-300 uppercase tracking-wider mono">
-                            <th class="py-3 px-4">Date & Time (IST)</th>
+                            <th class="py-3 px-4">4H Candle Time (IST)</th>
                             <th class="py-3 px-4">Instrument</th>
                             <th class="py-3 px-4">Timeframe Alignment</th>
+                            <th class="py-3 px-4">4H CHoCH Level</th>
                             <th class="py-3 px-4">Daily CHoCH Level</th>
-                            <th class="py-3 px-4">Hourly CHoCH Level</th>
                             <th class="py-3 px-4">Current Price</th>
                             <th class="py-3 px-4">Daily Price Confirmation</th>
                             <th class="py-3 px-4">Daily Anchor</th>
@@ -981,13 +981,13 @@
             const cardsContainer = document.getElementById('signals-cards');
 
             if (is1D1HMatchActive && (!confluenceMatches || confluenceMatches.length === 0)) {
-                if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center text-amber-400 mono animate-pulse">⚡ Scanning 1D + 1H confluence across Delta Exchange contracts...</td></tr>`;
-                if (cardsContainer) cardsContainer.innerHTML = `<div class="bg-cardbg border border-amber-500/30 rounded-xl p-8 text-center text-amber-400 mono text-xs animate-pulse">⚡ Scanning 1D + 1H confluence across Delta Exchange contracts...</div>`;
+                if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center text-amber-400 mono animate-pulse">⚡ Scanning 4H + 1D confluence across Delta Exchange contracts...</td></tr>`;
+                if (cardsContainer) cardsContainer.innerHTML = `<div class="bg-cardbg border border-amber-500/30 rounded-xl p-8 text-center text-amber-400 mono text-xs animate-pulse">⚡ Scanning 4H + 1D confluence across Delta Exchange contracts...</div>`;
             }
 
             try {
                 isConfluenceLoading = true;
-                const url = `/api/confluence_1d_1h?force=${force ? '1' : '0'}`;
+                const url = `/api/confluence_4h_1d?force=${force ? '1' : '0'}`;
                 const res = await fetch(url);
                 const data = await res.json();
                 confluenceMatches = data.matches || [];
@@ -999,7 +999,7 @@
                     updateConfluenceStats();
                 }
             } catch (err) {
-                console.error("Failed to fetch 1D+1H confluence:", err);
+                console.error("Failed to fetch 4H+1D confluence:", err);
             } finally {
                 isConfluenceLoading = false;
             }
@@ -1034,8 +1034,8 @@
             }
 
             if (!list || list.length === 0) {
-                if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center text-gray-500 mono">No 1D+1H matches found for current filter.</td></tr>`;
-                if (cardsContainer) cardsContainer.innerHTML = `<div class="bg-cardbg border border-bordercolor rounded-xl p-8 text-center text-gray-500 mono text-xs">No 1D+1H matches found for current filter.</div>`;
+                if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center text-gray-500 mono">No 4H+1D matches found for current filter.</td></tr>`;
+                if (cardsContainer) cardsContainer.innerHTML = `<div class="bg-cardbg border border-bordercolor rounded-xl p-8 text-center text-gray-500 mono text-xs">No 4H+1D matches found for current filter.</div>`;
                 return;
             }
 
@@ -1045,24 +1045,24 @@
             for (const m of list) {
                 const isBull = m.direction === 1;
                 const typeBadge = isBull
-                    ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">🟢 1D Bull + 1H Bull</span>`
-                    : `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-950/80 text-rose-400 border border-rose-800/60">🔴 1D Bear + 1H Bear</span>`;
+                    ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">🟢 4H Bull + 1D Bull</span>`
+                    : `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-950/80 text-rose-400 border border-rose-800/60">🔴 4H Bear + 1D Bear</span>`;
 
                 const priceRuleBadge = isBull
                     ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800/60">✓ Traded Above 1D (+${Math.abs(m.diff_pct)}%)</span>`
                     : `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-950/80 text-rose-300 border border-rose-800/60">✓ Traded Below 1D (${m.diff_pct}%)</span>`;
 
-                const dailyLvlStr = Number(m.daily_level).toFixed(4);
-                const hourlyLvlStr = Number(m.hourly_level).toFixed(4);
-                const currPStr = Number(m.current_price).toFixed(4);
+                const lvl4hStr = Number(m.level_4h || m.hourly_level || 0).toFixed(4);
+                const dailyLvlStr = Number(m.daily_level || 0).toFixed(4);
+                const currPStr = Number(m.current_price || 0).toFixed(4);
 
-                const openModalCall = `openChartModal('${m.symbol}', ${m.daily_level}, ${m.daily_anchor_price || 0}, ${m.current_price}, '${m.signal_type}', '${m.hourly_time || m.daily_time}')`;
+                const openModalCall = `openChartModal('${m.symbol}', ${m.daily_level}, ${m.daily_anchor_price || 0}, ${m.current_price}, '${m.signal_type}', '${m.candle_time || m.time_4h || m.daily_time}')`;
 
                 // Desktop Table Row
                 tableHtml += `
                     <tr class="hover:bg-darkbg/50 transition">
                         <td class="py-3 px-4 mono text-gray-300 whitespace-nowrap">
-                            <div class="text-white font-medium">${formatIST(m.hourly_time || m.daily_time)}</div>
+                            <div class="text-white font-medium">${formatIST(m.candle_time || m.time_4h)}</div>
                             <div class="text-[10px] text-gray-400">1D: ${formatIST(m.daily_time).split(',')[0]}</div>
                         </td>
                         <td class="py-3 px-4 font-bold text-white mono">
@@ -1070,12 +1070,12 @@
                         </td>
                         <td class="py-3 px-4 whitespace-nowrap">${typeBadge}</td>
                         <td class="py-3 px-4 whitespace-nowrap mono text-gray-300">
-                            <div>$${dailyLvlStr}</div>
-                            <div class="text-[10px] text-gray-500">${m.daily_broken_pivot || '1D Level'}</div>
+                            <div>$${lvl4hStr}</div>
+                            <div class="text-[10px] text-gray-500">${m.broken_pivot_4h || m.hourly_broken_pivot || '4H Level'}</div>
                         </td>
                         <td class="py-3 px-4 whitespace-nowrap mono text-gray-300">
-                            <div>$${hourlyLvlStr}</div>
-                            <div class="text-[10px] text-gray-500">${m.hourly_broken_pivot || '1H Level'}</div>
+                            <div>$${dailyLvlStr}</div>
+                            <div class="text-[10px] text-gray-500">${m.daily_broken_pivot || '1D Level'}</div>
                         </td>
                         <td class="py-3 px-4 mono text-white font-medium whitespace-nowrap">$${currPStr}</td>
                         <td class="py-3 px-4 whitespace-nowrap">${priceRuleBadge}</td>
@@ -1105,20 +1105,20 @@
 
                         <div class="grid grid-cols-2 gap-2 text-xs bg-darkbg/70 p-2.5 rounded-lg border border-bordercolor/60 mono">
                             <div>
-                                <div class="text-[10px] text-gray-500 uppercase tracking-wider">Trigger Time (IST)</div>
-                                <div class="text-gray-200 font-semibold text-[11px] mt-0.5">${formatIST(m.hourly_time || m.daily_time)}</div>
+                                <div class="text-[10px] text-gray-500 uppercase tracking-wider">4H Candle Time (IST)</div>
+                                <div class="text-gray-200 font-semibold text-[11px] mt-0.5">${formatIST(m.candle_time || m.time_4h)}</div>
                             </div>
                             <div>
                                 <div class="text-[10px] text-gray-500 uppercase tracking-wider">1D CHoCH Date</div>
                                 <div class="text-gray-300 font-medium text-[11px] mt-0.5">${formatIST(m.daily_time).split(',')[0]}</div>
                             </div>
                             <div>
-                                <div class="text-[10px] text-gray-500 uppercase tracking-wider">1D CHoCH Level</div>
-                                <div class="text-gray-200 font-semibold text-[11px] mt-0.5">$${dailyLvlStr} (${m.daily_broken_pivot || '1D'})</div>
+                                <div class="text-[10px] text-gray-500 uppercase tracking-wider">4H CHoCH Level</div>
+                                <div class="text-gray-200 font-semibold text-[11px] mt-0.5">$${lvl4hStr} (${m.broken_pivot_4h || m.hourly_broken_pivot || '4H'})</div>
                             </div>
                             <div>
-                                <div class="text-[10px] text-gray-500 uppercase tracking-wider">1H CHoCH Level</div>
-                                <div class="text-gray-200 font-semibold text-[11px] mt-0.5">$${hourlyLvlStr} (${m.hourly_broken_pivot || '1H'})</div>
+                                <div class="text-[10px] text-gray-500 uppercase tracking-wider">1D CHoCH Level</div>
+                                <div class="text-gray-200 font-semibold text-[11px] mt-0.5">$${dailyLvlStr} (${m.daily_broken_pivot || '1D'})</div>
                             </div>
                             <div class="col-span-2 pt-1">
                                 <div class="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Daily Price Confirmation</div>
@@ -1127,7 +1127,7 @@
                         </div>
 
                         <div class="flex items-center justify-between pt-0.5">
-                            <span class="text-[11px] text-gray-400 mono">${m.daily_anchor_label ? `Anchor: ${m.daily_anchor_label}` : 'Confluence Match'}</span>
+                            <span class="text-[11px] text-gray-400 mono">${m.daily_anchor_label ? `Anchor: ${m.daily_anchor_label}` : '4H+1D Confluence'}</span>
                             <span class="inline-flex items-center space-x-1 text-xs font-semibold text-blue-400 bg-blue-950/60 px-3 py-1 rounded-lg border border-blue-800/50">
                                 <span>📊 Open Chart</span>
                                 <span>→</span>

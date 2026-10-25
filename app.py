@@ -258,9 +258,9 @@ _confluence_cache = {
 
 def run_confluence_scan() -> list:
     """
-    Scans all perpetual contracts for 1D + 1H timeframe confluence:
+    Scans all perpetual contracts for 4H + 1D timeframe confluence:
     1. Daily CHoCH is active (Bullish or Bearish).
-    2. Hourly CHoCH matches the same direction as Daily CHoCH.
+    2. 4-Hour CHoCH matches the same direction as Daily CHoCH.
     3. Price is trading strictly below Daily CHoCH for Bearish, and strictly above for Bullish.
     """
     global _confluence_cache
@@ -285,19 +285,19 @@ def run_confluence_scan() -> list:
                 d_dir = sig_1d.choch_event.direction
                 d_level = sig_1d.choch_event.broken_pivot.candle_high if d_dir == 1 else sig_1d.choch_event.broken_pivot.candle_low
 
-                # 2. Fetch 1H candles (Hourly)
-                df_1h = client.fetch_candles_paginated(sym, resolution="1h", num_candles=90)
-                if df_1h.empty or len(df_1h) < 30:
+                # 2. Fetch 4H candles (4-Hour)
+                df_4h = client.fetch_candles_paginated(sym, resolution="4h", num_candles=150)
+                if df_4h.empty or len(df_4h) < 30:
                     return None
-                res_1h = detector.analyze(df_1h)
-                sig_1h = res_1h.get("latest_signal")
-                if not sig_1h:
+                res_4h = detector.analyze(df_4h)
+                sig_4h = res_4h.get("latest_signal")
+                if not sig_4h:
                     return None
 
-                h_dir = sig_1h.choch_event.direction
-                curr_price = float(df_1h["close"].iloc[-1])
+                h_dir = sig_4h.choch_event.direction
+                curr_price = float(df_4h["close"].iloc[-1])
 
-                # Condition 1: 1D direction matches 1H direction!
+                # Condition 1: 4H direction matches Daily direction!
                 if d_dir != h_dir:
                     return None
 
@@ -309,29 +309,39 @@ def run_confluence_scan() -> list:
 
                 diff_pct = ((curr_price - d_level) / d_level) * 100
 
+                lvl_4h = sig_4h.choch_event.broken_pivot.candle_high if h_dir == 1 else sig_4h.choch_event.broken_pivot.candle_low
+
                 return {
                     "symbol": sym,
                     "direction": d_dir,
                     "signal_type": "BULLISH_CHOCH" if d_dir == 1 else "BEARISH_CHOCH",
                     "current_price": curr_price,
+                    "candle_time": str(sig_4h.choch_event.time),
+                    "time_4h": str(sig_4h.choch_event.time),
+                    "level_4h": lvl_4h,
+                    "broken_pivot_4h": sig_4h.choch_event.broken_pivot.label,
+                    "close_4h": sig_4h.choch_event.candle_close,
                     "daily_level": d_level,
                     "daily_broken_pivot": sig_1d.choch_event.broken_pivot.label,
                     "daily_time": str(sig_1d.choch_event.time),
                     "daily_close": sig_1d.choch_event.candle_close,
                     "daily_anchor_label": sig_1d.choch_event.macro_anchor.label if sig_1d.choch_event.macro_anchor else "",
                     "daily_anchor_price": sig_1d.choch_event.macro_anchor.price if sig_1d.choch_event.macro_anchor else 0.0,
-                    "hourly_level": sig_1h.choch_event.broken_pivot.candle_high if h_dir == 1 else sig_1h.choch_event.broken_pivot.candle_low,
-                    "hourly_broken_pivot": sig_1h.choch_event.broken_pivot.label,
-                    "hourly_time": str(sig_1h.choch_event.time),
-                    "hourly_close": sig_1h.choch_event.candle_close,
                     "diff_pct": round(diff_pct, 2),
                     "confluence_status": "TRADING_ABOVE_1D" if d_dir == 1 else "TRADING_BELOW_1D",
+                    # Backwards compatibility aliases
+                    "hourly_level": lvl_4h,
+                    "hourly_broken_pivot": sig_4h.choch_event.broken_pivot.label,
+                    "hourly_time": str(sig_4h.choch_event.time),
                 }
             except Exception:
                 return None
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=35) as executor:
             matches = [r for r in executor.map(check_single_confluence, instruments) if r is not None]
+
+        # Sort matches by 4H signal time descending
+        matches.sort(key=lambda m: str(m.get("candle_time", "")), reverse=True)
 
         now_ist = datetime.now(IST).strftime("%d %b, %I:%M:%S %p IST")
         _confluence_cache["timestamp"] = now
@@ -343,10 +353,11 @@ def run_confluence_scan() -> list:
         return _confluence_cache["matches"]
 
 
+@app.route("/api/confluence_4h_1d")
 @app.route("/api/confluence_1d_1h")
-def get_confluence_1d_1h():
+def get_confluence_4h_1d():
     """
-    Returns instruments where 1D and 1H CHoCH match and price confirms traded below/above Daily CHoCH.
+    Returns instruments where 4H and 1D CHoCH match and price confirms traded below/above Daily CHoCH.
     """
     force = request.args.get("force", "0") == "1"
     now = time.time()
