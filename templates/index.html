@@ -181,6 +181,11 @@
                 <button onclick="setFilter('BEARISH_CHOCH')" id="filter-bear" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-300 hover:text-white border border-bordercolor hover:border-rose-500 transition whitespace-nowrap">
                     🔴 Bearish
                 </button>
+                <button onclick="toggle1D1HMatch()" id="btn-1d1h-match" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-darkbg text-amber-400 hover:text-white border border-amber-500/50 hover:border-amber-400 transition whitespace-nowrap flex items-center space-x-1.5 shadow-sm" title="Filter instruments having matching 1D + 1H CHoCH with price confirmed below/above 1D level">
+                    <span id="match-icon">⚡</span>
+                    <span>1D+1H Match</span>
+                    <span id="badge-match-count" class="hidden text-[10px] px-1.5 py-0.2 bg-amber-500/20 text-amber-300 rounded border border-amber-500/40 font-mono">0</span>
+                </button>
                 <button id="btn-notifications" onclick="toggleNotifications()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-300 hover:text-white border border-bordercolor transition whitespace-nowrap flex items-center space-x-1.5" title="Enable mobile & browser push alerts">
                     <span id="notif-icon">🔔</span>
                     <span id="notif-text">Enable Alerts</span>
@@ -201,6 +206,18 @@
             </div>
         </div>
 
+        <!-- Confluence Active Info Banner (Visible only when 1D+1H Match is ON) -->
+        <div id="confluence-banner" class="hidden bg-amber-950/40 border border-amber-600/40 rounded-xl p-3 sm:p-3.5 flex items-center justify-between gap-3 text-xs">
+            <div class="flex items-center space-x-2 text-amber-200">
+                <span class="text-base sm:text-lg">⚡</span>
+                <div>
+                    <span class="font-bold text-amber-300">1D + 1H Confluence Mode:</span>
+                    <span class="text-gray-300 ml-1">Showing instruments where 1D and 1H CHoCH direction match, and current price confirms traded below Daily CHoCH (Bearish) or above Daily CHoCH (Bullish).</span>
+                </div>
+            </div>
+            <button onclick="toggle1D1HMatch()" class="text-xs text-amber-400 hover:text-amber-200 underline whitespace-nowrap mono font-medium">Turn Off ✕</button>
+        </div>
+
         <!-- Mobile Signals Card View (Visible on Mobile screens < 768px) -->
         <div id="signals-cards" class="md:hidden space-y-2.5">
             <div class="bg-cardbg border border-bordercolor rounded-xl p-8 text-center text-gray-500 mono text-xs">
@@ -213,7 +230,8 @@
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse">
                     <thead>
-                        <tr class="bg-darkbg/90 border-b border-bordercolor text-[11px] font-semibold text-gray-400 uppercase tracking-wider mono">
+                        <!-- Standard 4H Table Header -->
+                        <tr id="thead-row-standard" class="bg-darkbg/90 border-b border-bordercolor text-[11px] font-semibold text-gray-400 uppercase tracking-wider mono">
                             <th class="py-3 px-4">4H Candle Time (IST)</th>
                             <th class="py-3 px-4">Instrument</th>
                             <th class="py-3 px-4">Signal Type</th>
@@ -222,6 +240,17 @@
                             <th class="py-3 px-4">Price At Signal</th>
                             <th class="py-3 px-4">Current Price</th>
                             <th class="py-3 px-4">Prior BOS</th>
+                            <th class="py-3 px-4 text-center">Chart</th>
+                        </tr>
+                        <!-- Confluence 1D+1H Table Header -->
+                        <tr id="thead-row-confluence" class="hidden bg-darkbg/90 border-b border-amber-600/30 text-[11px] font-semibold text-amber-300 uppercase tracking-wider mono">
+                            <th class="py-3 px-4">Instrument</th>
+                            <th class="py-3 px-4">Timeframe Alignment</th>
+                            <th class="py-3 px-4">Daily CHoCH Level</th>
+                            <th class="py-3 px-4">Hourly CHoCH Level</th>
+                            <th class="py-3 px-4">Current Price</th>
+                            <th class="py-3 px-4">Daily Price Confirmation</th>
+                            <th class="py-3 px-4">Daily Anchor</th>
                             <th class="py-3 px-4 text-center">Chart</th>
                         </tr>
                     </thead>
@@ -319,6 +348,12 @@
         let candleSeries = null;
         let brokenLine = null;
         let anchorLine = null;
+
+        // 1D + 1H Confluence State
+        let is1D1HMatchActive = false;
+        let confluenceMatches = [];
+        let isConfluenceLoading = false;
+        let standardStatsBackup = { total: '0', bull: '0', bear: '0' };
 
         // Notification & Signal Tracking State
         let knownSignalKeys = new Set();
@@ -530,7 +565,9 @@
                 localStorage.setItem('delta_cached_signals', JSON.stringify(allSignals.slice(0, 300)));
             } catch(e) {}
 
-            renderTable(allSignals);
+            if (!is1D1HMatchActive) {
+                renderTable(allSignals);
+            }
         }
 
         // Fetch signals and update dashboard
@@ -571,9 +608,17 @@
                 const res = await fetch('/api/stats');
                 const data = await res.json();
                 
-                document.getElementById('stat-total').innerText = data.total_signals || 0;
-                document.getElementById('stat-bullish').innerText = data.bullish_count || 0;
-                document.getElementById('stat-bearish').innerText = data.bearish_count || 0;
+                if (!is1D1HMatchActive) {
+                    document.getElementById('stat-total').innerText = data.total_signals || 0;
+                    document.getElementById('stat-bullish').innerText = data.bullish_count || 0;
+                    document.getElementById('stat-bearish').innerText = data.bearish_count || 0;
+                } else {
+                    standardStatsBackup = {
+                        total: data.total_signals || 0,
+                        bull: data.bullish_count || 0,
+                        bear: data.bearish_count || 0
+                    };
+                }
                 document.getElementById('stat-symbols').innerText = data.unique_symbols || 237;
 
                 if (data.last_scan_time) {
@@ -845,6 +890,231 @@
             if (cardsContainer) cardsContainer.innerHTML = cardsHtml;
         }
 
+        // ─────────────────────────────────────────────────────────────
+        // 1D + 1H CONFLUENCE MATCH CONTROLLER
+        // ─────────────────────────────────────────────────────────────
+        async function toggle1D1HMatch() {
+            is1D1HMatchActive = !is1D1HMatchActive;
+            update1D1HButtonUI();
+
+            const banner = document.getElementById('confluence-banner');
+            const theadStd = document.getElementById('thead-row-standard');
+            const theadConf = document.getElementById('thead-row-confluence');
+
+            if (is1D1HMatchActive) {
+                if (banner) banner.classList.remove('hidden');
+                if (theadStd) theadStd.classList.add('hidden');
+                if (theadConf) theadConf.classList.remove('hidden');
+
+                // Backup current 4H stats
+                standardStatsBackup = {
+                    total: document.getElementById('stat-total')?.innerText || '0',
+                    bull: document.getElementById('stat-bullish')?.innerText || '0',
+                    bear: document.getElementById('stat-bearish')?.innerText || '0'
+                };
+
+                if (confluenceMatches.length === 0) {
+                    await fetch1D1HMatches();
+                } else {
+                    renderConfluenceTable(confluenceMatches);
+                    updateConfluenceStats();
+                }
+            } else {
+                if (banner) banner.classList.add('hidden');
+                if (theadStd) theadStd.classList.remove('hidden');
+                if (theadConf) theadConf.classList.add('hidden');
+
+                // Restore standard stats
+                if (document.getElementById('stat-total')) document.getElementById('stat-total').innerText = standardStatsBackup.total;
+                if (document.getElementById('stat-bullish')) document.getElementById('stat-bullish').innerText = standardStatsBackup.bull;
+                if (document.getElementById('stat-bearish')) document.getElementById('stat-bearish').innerText = standardStatsBackup.bear;
+
+                renderTable(allSignals);
+            }
+        }
+
+        function update1D1HButtonUI() {
+            const btn = document.getElementById('btn-1d1h-match');
+            const badge = document.getElementById('badge-match-count');
+            const icon = document.getElementById('match-icon');
+            if (!btn) return;
+
+            if (is1D1HMatchActive) {
+                btn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-400 text-gray-950 transition whitespace-nowrap flex items-center space-x-1.5 shadow-lg shadow-amber-500/25 ring-2 ring-amber-400/80';
+                if (icon) icon.innerText = '⚡';
+                if (badge) {
+                    badge.classList.remove('hidden');
+                    badge.className = 'text-[10px] px-1.5 py-0.2 bg-black/30 text-gray-950 font-bold rounded mono';
+                    badge.innerText = confluenceMatches.length;
+                }
+            } else {
+                btn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-darkbg text-amber-400 hover:text-white border border-amber-500/50 hover:border-amber-400 transition whitespace-nowrap flex items-center space-x-1.5 shadow-sm';
+                if (icon) icon.innerText = '⚡';
+                if (badge) {
+                    if (confluenceMatches.length > 0) {
+                        badge.classList.remove('hidden');
+                        badge.className = 'text-[10px] px-1.5 py-0.2 bg-amber-500/20 text-amber-300 rounded border border-amber-500/40 font-mono';
+                        badge.innerText = confluenceMatches.length;
+                    } else {
+                        badge.classList.add('hidden');
+                    }
+                }
+            }
+        }
+
+        async function fetch1D1HMatches(force = false) {
+            const tbody = document.getElementById('signals-tbody');
+            const cardsContainer = document.getElementById('signals-cards');
+
+            if (is1D1HMatchActive && (!confluenceMatches || confluenceMatches.length === 0)) {
+                if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center text-amber-400 mono animate-pulse">⚡ Scanning 1D + 1H confluence across Delta Exchange contracts...</td></tr>`;
+                if (cardsContainer) cardsContainer.innerHTML = `<div class="bg-cardbg border border-amber-500/30 rounded-xl p-8 text-center text-amber-400 mono text-xs animate-pulse">⚡ Scanning 1D + 1H confluence across Delta Exchange contracts...</div>`;
+            }
+
+            try {
+                isConfluenceLoading = true;
+                const url = `/api/confluence_1d_1h?force=${force ? '1' : '0'}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                confluenceMatches = data.matches || [];
+
+                update1D1HButtonUI();
+
+                if (is1D1HMatchActive) {
+                    renderConfluenceTable(confluenceMatches);
+                    updateConfluenceStats();
+                }
+            } catch (err) {
+                console.error("Failed to fetch 1D+1H confluence:", err);
+            } finally {
+                isConfluenceLoading = false;
+            }
+        }
+
+        function updateConfluenceStats() {
+            let bullCount = 0;
+            let bearCount = 0;
+            for (const m of confluenceMatches) {
+                if (m.direction === 1) bullCount++;
+                else if (m.direction === -1) bearCount++;
+            }
+            const totalEl = document.getElementById('stat-total');
+            const bullEl = document.getElementById('stat-bullish');
+            const bearEl = document.getElementById('stat-bearish');
+            if (totalEl) totalEl.innerText = confluenceMatches.length;
+            if (bullEl) bullEl.innerText = bullCount;
+            if (bearEl) bearEl.innerText = bearCount;
+        }
+
+        function renderConfluenceTable(matches) {
+            const tbody = document.getElementById('signals-tbody');
+            const cardsContainer = document.getElementById('signals-cards');
+
+            let list = matches || confluenceMatches || [];
+            if (currentFilter && currentFilter !== 'ALL') {
+                list = list.filter(m => m.signal_type === currentFilter);
+            }
+            if (searchQuery && searchQuery.trim() !== '') {
+                const q = searchQuery.trim().toUpperCase();
+                list = list.filter(m => (m.symbol || '').toUpperCase().includes(q));
+            }
+
+            if (!list || list.length === 0) {
+                if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center text-gray-500 mono">No 1D+1H matches found for current filter.</td></tr>`;
+                if (cardsContainer) cardsContainer.innerHTML = `<div class="bg-cardbg border border-bordercolor rounded-xl p-8 text-center text-gray-500 mono text-xs">No 1D+1H matches found for current filter.</div>`;
+                return;
+            }
+
+            let tableHtml = '';
+            let cardsHtml = '';
+
+            for (const m of list) {
+                const isBull = m.direction === 1;
+                const typeBadge = isBull
+                    ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">🟢 1D Bull + 1H Bull</span>`
+                    : `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-950/80 text-rose-400 border border-rose-800/60">🔴 1D Bear + 1H Bear</span>`;
+
+                const priceRuleBadge = isBull
+                    ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800/60">✓ Traded Above 1D (+${Math.abs(m.diff_pct)}%)</span>`
+                    : `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-950/80 text-rose-300 border border-rose-800/60">✓ Traded Below 1D (${m.diff_pct}%)</span>`;
+
+                const dailyLvlStr = Number(m.daily_level).toFixed(4);
+                const hourlyLvlStr = Number(m.hourly_level).toFixed(4);
+                const currPStr = Number(m.current_price).toFixed(4);
+
+                const openModalCall = `openChartModal('${m.symbol}', ${m.daily_level}, ${m.daily_anchor_price || 0}, ${m.current_price}, '${m.signal_type}', '${m.hourly_time || m.daily_time}')`;
+
+                // Desktop Table Row
+                tableHtml += `
+                    <tr class="hover:bg-darkbg/50 transition">
+                        <td class="py-3 px-4 font-bold text-white mono">
+                            <span class="hover:text-blue-400 cursor-pointer" onclick="${openModalCall}">${m.symbol}</span>
+                        </td>
+                        <td class="py-3 px-4 whitespace-nowrap">${typeBadge}</td>
+                        <td class="py-3 px-4 whitespace-nowrap mono text-gray-300">
+                            <div>$${dailyLvlStr}</div>
+                            <div class="text-[10px] text-gray-500">${m.daily_broken_pivot || '1D Level'}</div>
+                        </td>
+                        <td class="py-3 px-4 whitespace-nowrap mono text-gray-300">
+                            <div>$${hourlyLvlStr}</div>
+                            <div class="text-[10px] text-gray-500">${m.hourly_broken_pivot || '1H Level'}</div>
+                        </td>
+                        <td class="py-3 px-4 mono text-white font-medium whitespace-nowrap">$${currPStr}</td>
+                        <td class="py-3 px-4 whitespace-nowrap">${priceRuleBadge}</td>
+                        <td class="py-3 px-4 whitespace-nowrap mono text-yellow-400 text-xs">
+                            ${m.daily_anchor_label ? `${m.daily_anchor_label} ($${Number(m.daily_anchor_price).toFixed(4)})` : '<span class="text-gray-500">N/A</span>'}
+                        </td>
+                        <td class="py-3 px-4 text-center">
+                            <button onclick="${openModalCall}" class="px-2.5 py-1 rounded bg-blue-900/40 hover:bg-blue-800/60 text-blue-300 border border-blue-700/50 text-xs mono font-medium transition">
+                                📊 Chart
+                            </button>
+                        </td>
+                    </tr>
+                `;
+
+                // Mobile Card View
+                cardsHtml += `
+                    <div class="bg-cardbg border border-bordercolor rounded-xl p-3.5 hover:border-gray-600 transition flex flex-col space-y-2.5 active:bg-darkbg/80 cursor-pointer shadow-sm" onclick="${openModalCall}">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-base font-bold text-white mono">${m.symbol}</span>
+                                ${typeBadge}
+                            </div>
+                            <div class="text-right mono">
+                                <div class="text-sm font-bold text-white">$${currPStr}</div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 text-xs bg-darkbg/70 p-2.5 rounded-lg border border-bordercolor/60 mono">
+                            <div>
+                                <div class="text-[10px] text-gray-500 uppercase tracking-wider">1D CHoCH Level</div>
+                                <div class="text-gray-200 font-semibold text-[11px] mt-0.5">$${dailyLvlStr} (${m.daily_broken_pivot || '1D'})</div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] text-gray-500 uppercase tracking-wider">1H CHoCH Level</div>
+                                <div class="text-gray-200 font-semibold text-[11px] mt-0.5">$${hourlyLvlStr} (${m.hourly_broken_pivot || '1H'})</div>
+                            </div>
+                            <div class="col-span-2 pt-1">
+                                <div class="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Daily Price Confirmation</div>
+                                ${priceRuleBadge}
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between pt-0.5">
+                            <span class="text-[11px] text-gray-400 mono">${m.daily_anchor_label ? `Anchor: ${m.daily_anchor_label}` : 'Confluence Match'}</span>
+                            <span class="inline-flex items-center space-x-1 text-xs font-semibold text-blue-400 bg-blue-950/60 px-3 py-1 rounded-lg border border-blue-800/50">
+                                <span>📊 Open Chart</span>
+                                <span>→</span>
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (tbody) tbody.innerHTML = tableHtml;
+            if (cardsContainer) cardsContainer.innerHTML = cardsHtml;
+        }
+
         function setFilter(type) {
             currentFilter = type;
             document.getElementById('filter-all').className = type === 'ALL' 
@@ -859,14 +1129,22 @@
                 ? 'px-3.5 py-1.5 rounded-lg text-xs font-medium bg-rose-600 text-white transition'
                 : 'px-3.5 py-1.5 rounded-lg text-xs font-medium bg-darkbg text-gray-300 hover:text-white border border-bordercolor transition';
 
-            renderTable(allSignals);
-            fetchSignals();
+            if (is1D1HMatchActive) {
+                renderConfluenceTable(confluenceMatches);
+            } else {
+                renderTable(allSignals);
+                fetchSignals();
+            }
         }
 
         function handleSearch() {
             searchQuery = document.getElementById('search-input').value;
-            renderTable(allSignals);
-            fetchSignals();
+            if (is1D1HMatchActive) {
+                renderConfluenceTable(confluenceMatches);
+            } else {
+                renderTable(allSignals);
+                fetchSignals();
+            }
         }
 
         async function triggerLiveScan() {
@@ -897,6 +1175,12 @@
                 // If scan returned fresh signals, immediately merge and render them
                 if (data.signals && data.signals.length > 0) {
                     mergeAndRenderSignals(data.signals);
+                }
+
+                if (is1D1HMatchActive) {
+                    await fetch1D1HMatches(true);
+                } else {
+                    fetch1D1HMatches(true);
                 }
 
                 await fetchStats();
@@ -1454,6 +1738,7 @@
         // Initial load
         fetchStats();
         fetchSignals();
+        fetch1D1HMatches(false);
         checkAndAutoScanOnCandleClose();
     </script>
 </body>

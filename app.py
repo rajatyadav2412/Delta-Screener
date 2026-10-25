@@ -236,6 +236,7 @@ def trigger_scan():
 
     # Execute concurrent scan across all Delta perpetuals (~3.5 seconds)
     run_full_scan()
+    _confluence_cache["timestamp"] = 0  # Invalidate confluence cache so fresh scan will run
     now_time = scanner_state["last_scan_time"] or database.get_stats().get("last_scan_time")
     fresh_signals = database.get_history(limit=200)
     return jsonify({
@@ -245,6 +246,131 @@ def trigger_scan():
         "scanned_count": scanner_state["last_scan_count"],
         "new_alerts": scanner_state["last_new_alerts"],
         "signals": fresh_signals,
+    })
+
+
+_confluence_cache = {
+    "timestamp": 0,
+    "last_scan_time": None,
+    "matches": [],
+}
+
+
+def run_confluence_scan() -> list:
+    """
+    Scans all perpetual contracts for 1D + 1H timeframe confluence:
+    1. Daily CHoCH is active (Bullish or Bearish).
+    2. Hourly CHoCH matches the same direction as Daily CHoCH.
+    3. Price is trading strictly below Daily CHoCH for Bearish, and strictly above for Bullish.
+    """
+    global _confluence_cache
+    now = time.time()
+    try:
+        instruments = client.fetch_instruments(contract_types=["perpetual_futures"])
+        max_inst = config.get("max_instruments", 250)
+        instruments = instruments[:max_inst]
+
+        def check_single_confluence(inst):
+            sym = inst["symbol"]
+            try:
+                # 1. Fetch 1D candles (Daily)
+                df_1d = client.fetch_candles_paginated(sym, resolution="1d", num_candles=90)
+                if df_1d.empty or len(df_1d) < 30:
+                    return None
+                res_1d = detector.analyze(df_1d)
+                sig_1d = res_1d.get("latest_signal")
+                if not sig_1d:
+                    return None
+
+                d_dir = sig_1d.choch_event.direction
+                d_level = sig_1d.choch_event.broken_pivot.candle_high if d_dir == 1 else sig_1d.choch_event.broken_pivot.candle_low
+
+                # 2. Fetch 1H candles (Hourly)
+                df_1h = client.fetch_candles_paginated(sym, resolution="1h", num_candles=90)
+                if df_1h.empty or len(df_1h) < 30:
+                    return None
+                res_1h = detector.analyze(df_1h)
+                sig_1h = res_1h.get("latest_signal")
+                if not sig_1h:
+                    return None
+
+                h_dir = sig_1h.choch_event.direction
+                curr_price = float(df_1h["close"].iloc[-1])
+
+                # Condition 1: 1D direction matches 1H direction!
+                if d_dir != h_dir:
+                    return None
+
+                # Condition 2: Price traded above daily CHoCH for bullish, below for bearish!
+                if d_dir == 1 and curr_price <= d_level:
+                    return None
+                if d_dir == -1 and curr_price >= d_level:
+                    return None
+
+                diff_pct = ((curr_price - d_level) / d_level) * 100
+
+                return {
+                    "symbol": sym,
+                    "direction": d_dir,
+                    "signal_type": "BULLISH_CHOCH" if d_dir == 1 else "BEARISH_CHOCH",
+                    "current_price": curr_price,
+                    "daily_level": d_level,
+                    "daily_broken_pivot": sig_1d.choch_event.broken_pivot.label,
+                    "daily_time": str(sig_1d.choch_event.time),
+                    "daily_close": sig_1d.choch_event.candle_close,
+                    "daily_anchor_label": sig_1d.choch_event.macro_anchor.label if sig_1d.choch_event.macro_anchor else "",
+                    "daily_anchor_price": sig_1d.choch_event.macro_anchor.price if sig_1d.choch_event.macro_anchor else 0.0,
+                    "hourly_level": sig_1h.choch_event.broken_pivot.candle_high if h_dir == 1 else sig_1h.choch_event.broken_pivot.candle_low,
+                    "hourly_broken_pivot": sig_1h.choch_event.broken_pivot.label,
+                    "hourly_time": str(sig_1h.choch_event.time),
+                    "hourly_close": sig_1h.choch_event.candle_close,
+                    "diff_pct": round(diff_pct, 2),
+                    "confluence_status": "TRADING_ABOVE_1D" if d_dir == 1 else "TRADING_BELOW_1D",
+                }
+            except Exception:
+                return None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=35) as executor:
+            matches = [r for r in executor.map(check_single_confluence, instruments) if r is not None]
+
+        now_ist = datetime.now(IST).strftime("%d %b, %I:%M:%S %p IST")
+        _confluence_cache["timestamp"] = now
+        _confluence_cache["last_scan_time"] = now_ist
+        _confluence_cache["matches"] = matches
+        return matches
+    except Exception as e:
+        print(f"Error in run_confluence_scan: {e}")
+        return _confluence_cache["matches"]
+
+
+@app.route("/api/confluence_1d_1h")
+def get_confluence_1d_1h():
+    """
+    Returns instruments where 1D and 1H CHoCH match and price confirms traded below/above Daily CHoCH.
+    """
+    force = request.args.get("force", "0") == "1"
+    now = time.time()
+
+    if force or (now - _confluence_cache["timestamp"] > 75) or not _confluence_cache["matches"]:
+        matches = run_confluence_scan()
+    else:
+        matches = _confluence_cache["matches"]
+
+    symbol = request.args.get("symbol", "").strip().upper()
+    sig_type = request.args.get("type", "ALL").strip()
+
+    filtered = matches
+    if symbol:
+        filtered = [m for m in filtered if symbol in m["symbol"].upper()]
+    if sig_type and sig_type != "ALL":
+        filtered = [m for m in filtered if m["signal_type"] == sig_type]
+
+    return jsonify({
+        "status": "success",
+        "matches": filtered,
+        "total_count": len(filtered),
+        "all_matches_count": len(matches),
+        "last_scan_time": _confluence_cache["last_scan_time"] or datetime.now(IST).strftime("%d %b, %I:%M:%S %p IST")
     })
 
 
